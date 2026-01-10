@@ -4,21 +4,33 @@
  * MVP version: No logger, config manager, or daemon services
  */
 
-import { FileSystemManager } from '../infrastructure/storage/FileSystemManager';
-import { MarkdownBoardRepository } from '../infrastructure/storage/MarkdownBoardRepository';
-import { MarkdownStorageRepository } from '../infrastructure/storage/MarkdownStorageRepository';
-import { ValidationService } from '../services/ValidationService';
-import { BoardService } from '../services/BoardService';
-import { TaskService } from '../services/TaskService';
-import { FileWatcher } from '../infrastructure/daemon/FileWatcher';
-import { StorageConfig } from './StorageConfig';
-import { ActionsConfig, getActionsConfig } from './ActionsConfig';
-import { YamlActionRepository } from '../infrastructure/repositories/YamlActionRepository';
-import { ActionService } from '../services/ActionService';
-import { NotificationService } from '../services/NotificationService';
-import { ActionEngine } from '../services/ActionEngine';
-import { ActionDaemon } from '../infrastructure/daemon/ActionDaemon';
-import { MissedActionsManager } from '../services/MissedActionsManager';
+import { FileSystemManager } from "../infrastructure/storage/FileSystemManager";
+import { MarkdownBoardRepository } from "../infrastructure/storage/MarkdownBoardRepository";
+import { MarkdownStorageRepository } from "../infrastructure/storage/MarkdownStorageRepository";
+import { MarkdownProjectRepository } from "../infrastructure/storage/MarkdownProjectRepository";
+import { MarkdownParser } from "../infrastructure/storage/MarkdownParser";
+import { TaskStorageMigration } from "../infrastructure/storage/TaskStorageMigration";
+import { ValidationService } from "../services/ValidationService";
+import { BoardService } from "../services/BoardService";
+import { TaskService } from "../services/TaskService";
+import { ProjectService } from "../services/ProjectService";
+import { AgendaService } from "../services/AgendaService";
+import { NoteService } from "../services/NoteService";
+import { MarkdownNoteRepository } from "../infrastructure/storage/MarkdownNoteRepository";
+import { MarkdownAgendaRepository } from "../infrastructure/storage/MarkdownAgendaRepository";
+import { TimeTrackingService } from "../services/TimeTrackingService";
+import { YamlTimeLogRepository } from "../infrastructure/storage/YamlTimeLogRepository";
+import { FileWatcher } from "../infrastructure/daemon/FileWatcher";
+import { StorageConfig } from "./StorageConfig";
+import { ActionsConfig, getActionsConfig } from "./ActionsConfig";
+import { YamlActionRepository } from "../infrastructure/repositories/YamlActionRepository";
+import { ActionService } from "../services/ActionService";
+import { NotificationService } from "../services/NotificationService";
+import { ActionEngine } from "../services/ActionEngine";
+import { ActionDaemon } from "../infrastructure/daemon/ActionDaemon";
+import { MissedActionsManager } from "../services/MissedActionsManager";
+import { GoogleCalendarRepository } from "../infrastructure/calendar/GoogleCalendarRepository";
+import { CalendarSyncService } from "../services/CalendarSyncService";
 
 type Factory<T> = () => T;
 
@@ -47,32 +59,18 @@ export class DependencyContainer {
 
     // Storage config with FileSystemManager dependency
     this.factories.set(StorageConfig, () => {
-      const fsManager = this.get(FileSystemManager);
-      const storageConfig = new StorageConfig(undefined, fsManager);
-
-      // Asynchronously load and apply custom boards directory to FileSystemManager
-      // This is a workaround since factory can't be async
-      storageConfig.getBoardsDirectory().then((boardsDir) => {
-        const defaultDir = fsManager.getDefaultBoardsDirectory();
-        if (boardsDir !== defaultDir) {
-          fsManager.setBoardsDirectory(boardsDir);
-          console.log('Custom boards directory loaded:', boardsDir);
-        }
-      }).catch((error) => {
-        console.error('Failed to load custom boards directory:', error);
-      });
-
-      return storageConfig;
+      const fsManager = this.get<FileSystemManager>(FileSystemManager);
+      return new StorageConfig(undefined, fsManager);
     });
 
     // Repository factories with FileSystemManager dependency
     this.factories.set(
       MarkdownBoardRepository,
-      () => new MarkdownBoardRepository(this.get(FileSystemManager))
+      () => new MarkdownBoardRepository(this.get(FileSystemManager)),
     );
     this.factories.set(
       MarkdownStorageRepository,
-      () => new MarkdownStorageRepository(this.get(FileSystemManager))
+      () => new MarkdownStorageRepository(this.get(FileSystemManager)),
     );
 
     // Service factories with dependencies
@@ -83,8 +81,8 @@ export class DependencyContainer {
       () =>
         new BoardService(
           this.get(MarkdownBoardRepository),
-          this.get(ValidationService)
-        )
+          this.get(ValidationService),
+        ),
     );
 
     this.factories.set(
@@ -92,31 +90,89 @@ export class DependencyContainer {
       () =>
         new TaskService(
           this.get(MarkdownStorageRepository),
-          this.get(ValidationService)
-        )
+          this.get(ValidationService),
+        ),
+    );
+
+    // Project Repository with FileSystemManager dependency
+    this.factories.set(
+      MarkdownProjectRepository,
+      () => new MarkdownProjectRepository(this.get(FileSystemManager)),
+    );
+
+    // Project Service
+    this.factories.set(
+      ProjectService,
+      () =>
+        new ProjectService(
+          this.get(MarkdownProjectRepository),
+          this.get(ValidationService),
+        ),
+    );
+
+    // Agenda Repository
+    this.factories.set(
+      MarkdownAgendaRepository,
+      () => new MarkdownAgendaRepository(this.get(FileSystemManager)),
+    );
+
+    // Agenda Service
+    this.factories.set(
+      AgendaService,
+      () =>
+        new AgendaService(
+          this.get(BoardService),
+          this.get(ProjectService),
+          this.get(MarkdownAgendaRepository),
+        ),
+    );
+
+    // Note Repository
+    this.factories.set(
+      MarkdownNoteRepository,
+      () => new MarkdownNoteRepository(this.get(FileSystemManager)),
+    );
+
+    // Note Service
+    this.factories.set(
+      NoteService,
+      () =>
+        new NoteService(
+          this.get(MarkdownNoteRepository),
+          this.get(ValidationService),
+        ),
+    );
+
+    // Time Log Repository
+    this.factories.set(
+      YamlTimeLogRepository,
+      () => new YamlTimeLogRepository(this.get(FileSystemManager)),
+    );
+
+    // Time Tracking Service
+    this.factories.set(
+      TimeTrackingService,
+      () => new TimeTrackingService(this.get(YamlTimeLogRepository)),
     );
 
     // File watcher factory with FileSystemManager dependency
     this.factories.set(
       FileWatcher,
-      () => new FileWatcher(this.get(FileSystemManager))
+      () => new FileWatcher(this.get(FileSystemManager)),
     );
 
     // Actions Config (singleton)
     this.factories.set(ActionsConfig, () => getActionsConfig());
 
     // Action Repository with FileSystemManager dependency
-    this.factories.set(
-      YamlActionRepository,
-      () => {
-        const repo = new YamlActionRepository(this.get(FileSystemManager));
-        // Initialize asynchronously
-        repo.initialize().catch((error) => {
-          console.error('Failed to initialize ActionRepository:', error);
-        });
-        return repo;
-      }
-    );
+    this.factories.set(YamlActionRepository, () => {
+      const repo = new YamlActionRepository(this.get(FileSystemManager));
+      // Initialize asynchronously
+      repo.initialize().catch((error) => {
+        console.error("Failed to initialize ActionRepository:", error);
+      });
+      return repo;
+    });
 
     // Action Service
     this.factories.set(
@@ -125,22 +181,19 @@ export class DependencyContainer {
         new ActionService(
           this.get(YamlActionRepository),
           this.get(MarkdownBoardRepository),
-          this.get(ActionsConfig)
-        )
+          this.get(ActionsConfig),
+        ),
     );
 
     // Notification Service
-    this.factories.set(
-      NotificationService,
-      () => {
-        const service = new NotificationService(this.get(ActionsConfig));
-        // Initialize asynchronously
-        service.initialize().catch((error) => {
-          console.error('Failed to initialize NotificationService:', error);
-        });
-        return service;
-      }
-    );
+    this.factories.set(NotificationService, () => {
+      const service = new NotificationService(this.get(ActionsConfig));
+      // Initialize asynchronously
+      service.initialize().catch((error) => {
+        console.error("Failed to initialize NotificationService:", error);
+      });
+      return service;
+    });
 
     // Action Engine
     this.factories.set(
@@ -150,8 +203,8 @@ export class DependencyContainer {
           this.get(ActionService),
           this.get(TaskService),
           this.get(BoardService),
-          this.get(NotificationService)
-        )
+          this.get(NotificationService),
+        ),
     );
 
     // Missed Actions Manager
@@ -160,8 +213,8 @@ export class DependencyContainer {
       () =>
         new MissedActionsManager(
           this.get(ActionService),
-          this.get(ActionsConfig)
-        )
+          this.get(ActionsConfig),
+        ),
     );
 
     // Action Daemon
@@ -171,8 +224,24 @@ export class DependencyContainer {
         new ActionDaemon(
           this.get(ActionEngine),
           this.get(ActionService),
-          this.get(ActionsConfig)
-        )
+          this.get(ActionsConfig),
+        ),
+    );
+
+    // Google Calendar Repository
+    this.factories.set(
+      GoogleCalendarRepository,
+      () => new GoogleCalendarRepository(),
+    );
+
+    // Calendar Sync Service
+    this.factories.set(
+      CalendarSyncService,
+      () =>
+        new CalendarSyncService(
+          this.get(GoogleCalendarRepository),
+          this.get(MarkdownBoardRepository),
+        ),
     );
   }
 
@@ -204,14 +273,18 @@ export class DependencyContainer {
     if (this.factories.has(serviceType)) {
       const factory = this.factories.get(serviceType);
       if (!factory) {
-        throw new Error(`Factory is undefined for ${serviceType.name || serviceType}`);
+        throw new Error(
+          `Factory is undefined for ${serviceType.name || serviceType}`,
+        );
       }
       const instance = factory();
       this.instances.set(serviceType, instance);
       return instance;
     }
 
-    throw new Error(`No factory registered for ${serviceType.name || serviceType}`);
+    throw new Error(
+      `No factory registered for ${serviceType.name || serviceType}`,
+    );
   }
 
   /**
@@ -232,6 +305,7 @@ export class DependencyContainer {
 
 // Global container instance
 let _container: DependencyContainer | null = null;
+let _initialized: boolean = false;
 
 /**
  * Get the global dependency container
@@ -241,6 +315,38 @@ export function getContainer(): DependencyContainer {
     _container = new DependencyContainer();
   }
   return _container;
+}
+
+/**
+ * Initialize the global container asynchronously
+ * This should be called during app startup before rendering
+ */
+export async function initializeContainer(): Promise<void> {
+  if (_initialized) {
+    return;
+  }
+
+  const container = getContainer();
+
+  const fsManager = container.get<FileSystemManager>(FileSystemManager);
+  await fsManager.initialize();
+
+  const storageConfig = container.get<StorageConfig>(StorageConfig);
+  const boardsDir = await storageConfig.getBoardsDirectory();
+  const defaultDir = storageConfig.getDefaultBoardsDirectory();
+
+  if (boardsDir !== defaultDir) {
+    console.log("Custom boards directory loaded:", boardsDir);
+  }
+
+  _initialized = true;
+}
+
+/**
+ * Check if the container has been initialized
+ */
+export function isContainerInitialized(): boolean {
+  return _initialized;
 }
 
 /**
@@ -255,6 +361,7 @@ export function setContainer(container: DependencyContainer): void {
  */
 export function resetContainer(): void {
   _container = null;
+  _initialized = false;
 }
 
 // Convenience functions for getting services
@@ -363,4 +470,74 @@ export function getMissedActionsManager(): MissedActionsManager {
  */
 export function getActionDaemon(): ActionDaemon {
   return getContainer().get(ActionDaemon);
+}
+
+/**
+ * Get the project repository
+ */
+export function getProjectRepository(): MarkdownProjectRepository {
+  return getContainer().get(MarkdownProjectRepository);
+}
+
+/**
+ * Get the project service
+ */
+export function getProjectService(): ProjectService {
+  return getContainer().get(ProjectService);
+}
+
+/**
+ * Get the agenda repository
+ */
+export function getAgendaRepository(): MarkdownAgendaRepository {
+  return getContainer().get(MarkdownAgendaRepository);
+}
+
+/**
+ * Get the agenda service
+ */
+export function getAgendaService(): AgendaService {
+  return getContainer().get(AgendaService);
+}
+
+/**
+ * Get the note repository
+ */
+export function getNoteRepository(): MarkdownNoteRepository {
+  return getContainer().get(MarkdownNoteRepository);
+}
+
+/**
+ * Get the note service
+ */
+export function getNoteService(): NoteService {
+  return getContainer().get(NoteService);
+}
+
+/**
+ * Get the time log repository
+ */
+export function getTimeLogRepository(): YamlTimeLogRepository {
+  return getContainer().get(YamlTimeLogRepository);
+}
+
+/**
+ * Get the time tracking service
+ */
+export function getTimeTrackingService(): TimeTrackingService {
+  return getContainer().get(TimeTrackingService);
+}
+
+/**
+ * Get the Google calendar repository
+ */
+export function getCalendarRepository(): GoogleCalendarRepository {
+  return getContainer().get(GoogleCalendarRepository);
+}
+
+/**
+ * Get the calendar sync service
+ */
+export function getCalendarSyncService(): CalendarSyncService {
+  return getContainer().get(CalendarSyncService);
 }

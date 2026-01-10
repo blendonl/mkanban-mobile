@@ -58,7 +58,7 @@ export default function MoveToColumnModal({
                 {column.name}
               </Text>
               <Text style={styles.columnCount}>
-                {column.items.length} items
+                {column.tasks.length} tasks
               </Text>
             </View>
             {isCurrent && (

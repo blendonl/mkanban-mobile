@@ -10,54 +10,103 @@ import { getSafeFilename } from "../../utils/stringUtils";
 import { COLUMN_METADATA_FILENAME, COLUMNS_FOLDER_NAME, TASKS_FOLDER_NAME } from "../../core/constants";
 
 /**
- * Find a task file by its ID in a tasks directory
- * Supports both old format (title.md) and new format (id-title.md)
+ * Find a task file by its ID in a column directory
+ * Searches through subdirectories (task folders) and checks task.md frontmatter
  */
 export async function findTaskFileById(
   fileSystem: FileSystemManager,
   parser: MarkdownParser,
-  tasksDir: string,
+  columnDir: string,
   taskId: TaskId
 ): Promise<string | null> {
   try {
-    const exists = await fileSystem.directoryExists(tasksDir);
+    const exists = await fileSystem.directoryExists(columnDir);
     if (!exists) {
       return null;
     }
 
-    // List all markdown files in the tasks directory
-    const mdFiles = await fileSystem.listFiles(tasksDir, "*.md");
-    const taskIdLower = taskId.toLowerCase();
+    const taskFolders = await fileSystem.listDirectories(columnDir);
 
-    for (const taskFile of mdFiles) {
-      // Skip column.md
-      if (taskFile.endsWith(COLUMN_METADATA_FILENAME)) {
+    for (const taskFolder of taskFolders) {
+      const taskFile = `${taskFolder}task.md`;
+      const taskFileExists = await fileSystem.fileExists(taskFile);
+
+      if (!taskFileExists) {
         continue;
       }
 
-      // Check if filename starts with task ID (new format, case-insensitive)
-      const filename = getFileStem(taskFile).toLowerCase();
-      if (filename.startsWith(`${taskIdLower}-`)) {
-        return taskFile;
-      }
-
-      // Fallback: Check frontmatter (old format or verification)
       try {
         const parsed = await parser.parseTaskMetadata(taskFile);
-        const fileId = parsed.metadata.id || getFileStem(taskFile);
+        const fileId = parsed.metadata.id;
         if (fileId === taskId) {
           return taskFile;
         }
       } catch (error) {
-        // Skip corrupted files
         continue;
       }
     }
 
     return null;
   } catch (error) {
-    throw new Error(`Failed to search for task ${taskId} in ${tasksDir}: ${error}`);
+    throw new Error(`Failed to search for task ${taskId} in ${columnDir}: ${error}`);
   }
+}
+
+/**
+ * Get unique folder name for a task, handling collisions
+ * Returns folder name (not full path)
+ */
+export async function getUniqueFolderName(
+  fileSystem: FileSystemManager,
+  parser: MarkdownParser,
+  columnDir: string,
+  taskTitle: string,
+  taskId: TaskId,
+  maxRetries: number = 100
+): Promise<string> {
+  const baseName = getSafeFilename(taskTitle);
+  const basePath = `${columnDir}${baseName}/`;
+  const exists = await fileSystem.directoryExists(basePath);
+
+  if (!exists) {
+    return baseName;
+  }
+
+  const taskFile = `${basePath}task.md`;
+  if (await fileSystem.fileExists(taskFile)) {
+    try {
+      const parsed = await parser.parseTaskMetadata(taskFile);
+      if (parsed.metadata.id === taskId) {
+        return baseName;
+      }
+    } catch (error) {
+      // Corrupted file, treat as collision
+    }
+  }
+
+  for (let i = 2; i <= maxRetries; i++) {
+    const testName = `${baseName}-${i}`;
+    const testPath = `${columnDir}${testName}/`;
+    const testExists = await fileSystem.directoryExists(testPath);
+
+    if (!testExists) {
+      return testName;
+    }
+
+    const testTaskFile = `${testPath}task.md`;
+    if (await fileSystem.fileExists(testTaskFile)) {
+      try {
+        const parsed = await parser.parseTaskMetadata(testTaskFile);
+        if (parsed.metadata.id === taskId) {
+          return testName;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+  }
+
+  return `${baseName}-${taskId.toLowerCase()}`;
 }
 
 /**
@@ -86,82 +135,48 @@ export function getTasksDirectoryPath(columnDir: string): string {
 }
 
 /**
- * Clean up orphaned and duplicate task files in a tasks directory
- * Removes files for tasks not in currentTaskIds and duplicate files for same task
+ * Clean up orphaned task folders in a column directory
+ * Removes folders for tasks not in currentTaskIds
  */
 export async function cleanupTaskFiles(
   fileSystem: FileSystemManager,
   parser: MarkdownParser,
-  tasksDir: string,
+  columnDir: string,
   currentTaskIds: Set<TaskId>
 ): Promise<void> {
   try {
-    const exists = await fileSystem.directoryExists(tasksDir);
+    const exists = await fileSystem.directoryExists(columnDir);
     if (!exists) {
       return;
     }
 
-    const mdFiles = await fileSystem.listFiles(tasksDir, "*.md");
-    const taskIdToFiles: Map<TaskId, string[]> = new Map();
+    const taskFolders = await fileSystem.listDirectories(columnDir);
 
-    for (const taskFile of mdFiles) {
-      // Skip column.md
-      if (taskFile.endsWith(COLUMN_METADATA_FILENAME)) {
+    for (const taskFolder of taskFolders) {
+      const taskFile = `${taskFolder}task.md`;
+
+      if (!await fileSystem.fileExists(taskFile)) {
         continue;
       }
 
       try {
         const parsed = await parser.parseTaskMetadata(taskFile);
-        const fileTaskId = parsed.metadata.id || getFileStem(taskFile);
+        const taskId = parsed.metadata.id;
 
-        if (fileTaskId) {
-          // If task is not in current tasks, delete it
-          if (!currentTaskIds.has(fileTaskId)) {
-            await fileSystem.deleteFile(taskFile);
-          } else {
-            // Track files for this task ID
-            if (!taskIdToFiles.has(fileTaskId)) {
-              taskIdToFiles.set(fileTaskId, []);
-            }
-            taskIdToFiles.get(fileTaskId)!.push(taskFile);
-          }
+        if (taskId && !currentTaskIds.has(taskId)) {
+          await fileSystem.deleteDirectory(taskFolder);
         }
       } catch (error) {
-        // Skip corrupted files but don't throw
-        console.warn(`Skipping corrupted file ${taskFile}:`, error);
-        continue;
-      }
-    }
-
-    // Handle duplicates: keep newest, delete older files
-    for (const [taskId, files] of taskIdToFiles.entries()) {
-      if (files.length > 1) {
-        // Sort by modification time (newest first)
-        const fileInfos = await Promise.all(
-          files.map(async (file) => ({
-            file,
-            info: await fileSystem.getFileInfo(file),
-          }))
-        );
-
-        fileInfos.sort((a, b) => {
-          const aTime = a.info.modificationTime || 0;
-          const bTime = b.info.modificationTime || 0;
-          return bTime - aTime; // Descending order (newest first)
-        });
-
-        // Delete all but the first (newest) file
-        for (let i = 1; i < fileInfos.length; i++) {
-          await fileSystem.deleteFile(fileInfos[i].file);
-        }
+        console.warn(`Skipping corrupted task folder ${taskFolder}:`, error);
       }
     }
   } catch (error) {
-    console.error(`Failed to cleanup task files in ${tasksDir}:`, error);
+    console.error(`Failed to cleanup task files in ${columnDir}:`, error);
   }
 }
 
 /**
+ * @deprecated Use getUniqueFolderName instead for new folder-based structure
  * Get unique filename to avoid collisions
  * If file exists with different task ID, append counter or task ID
  */
@@ -176,7 +191,6 @@ export async function getUniqueFilename(
   const extension = ".md";
   const directory = getParentDirectory(basePath);
 
-  // Check if base path is available
   const baseFullPath = `${directory}${baseName}${extension}`;
   const baseExists = await fileSystem.fileExists(baseFullPath);
 
@@ -184,18 +198,16 @@ export async function getUniqueFilename(
     return baseName;
   }
 
-  // Check if existing file has the same task ID
   try {
     const parsed = await parser.parseTaskMetadata(baseFullPath);
     const existingTaskId = parsed.metadata.id || baseName;
     if (existingTaskId === taskId) {
-      return baseName; // Same task, can use this filename
+      return baseName;
     }
   } catch (error) {
-    // If we can't read the file, treat it as a collision
+    // Treat as collision
   }
 
-  // Try with counter suffix
   for (let counter = 1; counter <= maxRetries; counter++) {
     const testName = `${baseName}_${counter}`;
     const testPath = `${directory}${testName}${extension}`;
@@ -205,7 +217,6 @@ export async function getUniqueFilename(
       return testName;
     }
 
-    // Check if this file has the same task ID
     try {
       const parsed = await parser.parseTaskMetadata(testPath);
       const existingTaskId = parsed.metadata.id || testName;
@@ -213,11 +224,10 @@ export async function getUniqueFilename(
         return testName;
       }
     } catch (error) {
-      // Continue to next attempt
+      continue;
     }
   }
 
-  // Last resort: use task ID in filename
   return `${baseName}_${taskId.substring(0, 8)}`;
 }
 

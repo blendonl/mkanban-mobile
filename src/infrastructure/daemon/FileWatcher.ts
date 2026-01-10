@@ -63,12 +63,10 @@ export class FileWatcher {
       return;
     }
 
-    this.isRunning = true;
+    console.warn('FileWatcher: Disabled - boards are now project-scoped');
+    return;
 
-    // Initial scan to establish baseline
-    const boardsDir = await this.fileSystemManager.getBoardsDirectory();
-    const initialState = await this.detector.scanDirectory(boardsDir);
-    this.detector.updateState(initialState);
+    this.isRunning = true;
 
     // Start polling
     this.intervalId = setInterval(() => {
@@ -100,21 +98,7 @@ export class FileWatcher {
    * Check for changes in the boards directory
    */
   async checkForChanges(): Promise<void> {
-    try {
-      const boardsDir = await this.fileSystemManager.getBoardsDirectory();
-      const currentState = await this.detector.scanDirectory(boardsDir);
-      const changes = this.detector.detectChanges(currentState);
-
-      if (changes.length > 0) {
-        console.log(`Detected ${changes.length} file changes`);
-        this.processChanges(changes);
-      }
-
-      // Update state for next check
-      this.detector.updateState(currentState);
-    } catch (error) {
-      console.error('Error checking for file changes:', error);
-    }
+    return;
   }
 
   /**
@@ -136,7 +120,7 @@ export class FileWatcher {
     const { path, type, isDirectory } = change;
 
     // Parse path components: /path/to/boards/{boardName}/{columnName?}/{fileName?}
-    const boardsDir = this.fileSystemManager.getBoardsDirectory();
+    const boardsDir = this.fileSystemManager.getDataDirectory();
     const relativePath = path.replace(`${boardsDir}/`, '');
     const parts = relativePath.split('/');
 

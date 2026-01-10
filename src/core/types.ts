@@ -8,6 +8,10 @@ export type TaskId = string;
 export type ColumnId = string;
 export type BoardId = string;
 export type ParentId = string;
+export type ProjectId = string;
+export type NoteId = string;
+export type TimeLogId = string;
+export type CalendarEventId = string;
 export type FilePath = string;
 export type Timestamp = Date;
 

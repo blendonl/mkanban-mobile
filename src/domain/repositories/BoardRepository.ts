@@ -4,13 +4,13 @@
  */
 
 import { Board } from "../entities/Board";
-import { BoardId } from "../../core/types";
+import { BoardId, ProjectId } from "../../core/types";
 
 export interface BoardRepository {
   /**
-   * Load all boards from storage
+   * Load boards from a specific directory (project boards directory)
    */
-  loadAllBoards(): Promise<Board[]>;
+  loadBoardsFromDirectory(directory: string): Promise<Board[]>;
 
   /**
    * Load a board by its ID
@@ -18,14 +18,9 @@ export interface BoardRepository {
   loadBoardById(boardId: BoardId): Promise<Board | null>;
 
   /**
-   * Load a board by its name
+   * Save a board to storage (requires project slug for path resolution)
    */
-  loadBoardByName(boardName: string): Promise<Board | null>;
-
-  /**
-   * Save a board to storage
-   */
-  saveBoard(board: Board): Promise<void>;
+  saveBoard(board: Board, projectSlug: string): Promise<void>;
 
   /**
    * Delete a board from storage
@@ -33,12 +28,7 @@ export interface BoardRepository {
   deleteBoard(boardId: BoardId): Promise<boolean>;
 
   /**
-   * List all board names
+   * Create a sample board with default columns for a project
    */
-  listBoardNames(): Promise<string[]>;
-
-  /**
-   * Create a sample board with default columns
-   */
-  createSampleBoard(name: string): Promise<Board>;
+  createSampleBoard(name: string, projectId: ProjectId): Promise<Board>;
 }

@@ -33,7 +33,34 @@ export class MarkdownStorageRepository implements StorageRepository {
         `Deleting task from column: board="${board.name}", column="${column.name}", task="${task.title}"`
       );
 
-      const columnDir = this.fileSystem.getColumnDirectory(board.name, column.name);
+      const projectBoardsDir = this.fileSystem.getProjectBoardsDirectory(board.project_id);
+      return await this.persistence.deleteTaskFromColumn(
+        projectBoardsDir,
+        board.name,
+        column.name,
+        task.id
+      );
+    } catch (error) {
+      console.error(
+        `Failed to delete task from column: board="${board.name}", column="${column.name}", task="${task.title}"`,
+        error
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Delete a task from a column (deprecated - keeping for compatibility)
+   */
+  private async deleteTaskFromColumnOld(board: Board, task: Task, column: Column): Promise<boolean> {
+    try {
+      console.log(
+        `Deleting task from column: board="${board.name}", column="${column.name}", task="${task.title}"`
+      );
+
+      const projectBoardsDir = this.fileSystem.getProjectBoardsDirectory(board.project_id);
+      const boardDir = `${projectBoardsDir}${board.id}/`;
+      const columnDir = `${boardDir}${column.id}/`;
       const tasksDir = getTasksDirectoryPath(columnDir);
       const taskFile = await findTaskFileById(
         this.fileSystem,
@@ -64,7 +91,7 @@ export class MarkdownStorageRepository implements StorageRepository {
       return false;
     } catch (error) {
       console.error(
-        `Failed to delete task from column: board="${board.name}", column="${column.name}", task="${task.title}"`,
+        `Failed to delete task from column (old): board="${board.name}", column="${column.name}", task="${task.title}"`,
         error
       );
       return false;
@@ -85,9 +112,14 @@ export class MarkdownStorageRepository implements StorageRepository {
         `Moving task between columns: board="${board.name}", task="${task.title}", from="${oldColumn.name}" to="${newColumn.name}"`
       );
 
-      // First, save the task to the new column
-      try {
-        await this.persistence.saveTaskToColumn(board.name, newColumn.name, {
+      const projectBoardsDir = this.fileSystem.getProjectBoardsDirectory(board.project_id);
+
+      return await this.persistence.moveTaskBetweenColumns(
+        projectBoardsDir,
+        board.name,
+        oldColumn.name,
+        newColumn.name,
+        {
           id: task.id,
           title: task.title,
           description: task.description,
@@ -96,35 +128,8 @@ export class MarkdownStorageRepository implements StorageRepository {
           moved_in_progress_at: task.moved_in_progress_at,
           moved_in_done_at: task.moved_in_done_at,
           worked_on_for: task.worked_on_for,
-        });
-
-        console.log(
-          `Saved task to new column: board="${board.name}", column="${newColumn.name}", task="${task.title}"`
-        );
-
-        // Then, delete from the old column
-        const deleted = await this.deleteTaskFromColumn(board, task, oldColumn);
-
-        if (deleted) {
-          console.log(
-            `Successfully moved task between columns: board="${board.name}", task="${task.title}", from="${oldColumn.name}" to="${newColumn.name}"`
-          );
-          return true;
-        } else {
-          // If delete failed, try to clean up the new file (rollback)
-          console.warn(
-            `Failed to delete from old column, cleaning up new column: board="${board.name}", task="${task.title}"`
-          );
-          await this.deleteTaskFromColumn(board, task, newColumn);
-          return false;
         }
-      } catch (saveError) {
-        console.error(
-          `Failed to save task to new column: board="${board.name}", column="${newColumn.name}", task="${task.title}"`,
-          saveError
-        );
-        return false;
-      }
+      );
     } catch (error) {
       console.error(
         `Failed to move task between columns: board="${board.name}", task="${task.title}"`,
@@ -141,16 +146,14 @@ export class MarkdownStorageRepository implements StorageRepository {
     try {
       console.log(`Saving board to storage: board="${board.name}"`);
 
+      const projectBoardsDir = this.fileSystem.getProjectBoardsDirectory(board.project_id);
+
       // Save all columns and their tasks
       for (const column of board.columns) {
         console.log(`Saving column: board="${board.name}", column="${column.name}"`);
 
-        // Ensure column directory exists
-        const columnDir = this.fileSystem.getColumnDirectory(board.name, column.name);
-        await this.fileSystem.ensureDirectoryExists(columnDir);
-
         // Save column metadata
-        await this.persistence.saveColumnMetadata(board.name, column.name, {
+        await this.persistence.saveColumnMetadata(projectBoardsDir, board.name, column.name, {
           id: column.id,
           name: column.name,
           position: column.position,
@@ -160,7 +163,7 @@ export class MarkdownStorageRepository implements StorageRepository {
 
         // Save all tasks in this column
         for (const task of column.tasks) {
-          await this.persistence.saveTaskToColumn(board.name, column.name, {
+          await this.persistence.saveTaskToColumn(projectBoardsDir, board.name, column.name, {
             id: task.id,
             title: task.title,
             description: task.description,

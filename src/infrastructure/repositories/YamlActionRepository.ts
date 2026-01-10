@@ -2,7 +2,7 @@
  * YamlActionRepository - YAML file-based implementation of ActionRepository
  */
 
-import RNFS from 'react-native-fs';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as YAML from 'yaml';
 import { Action, ActionType } from '../../domain/entities/Action';
 import { ScopeType } from '../../domain/entities/ActionScope';
@@ -22,14 +22,11 @@ export class YamlActionRepository implements ActionRepository {
    * Initialize the repository (must be called after boards directory is set)
    */
   async initialize(): Promise<void> {
-    const boardsDir = await this.fileSystemManager.getBoardsDirectory();
-    this.actionsDir = `${boardsDir}/.mkanban-mobile/actions`;
+    const dataDir = this.fileSystemManager.getDataDirectory();
+    this.actionsDir = `${dataDir}actions`;
     await this.ensureDirectoryStructure();
   }
 
-  /**
-   * Ensure directory structure exists
-   */
   private async ensureDirectoryStructure(): Promise<void> {
     const dirs = [
       this.actionsDir,
@@ -43,8 +40,9 @@ export class YamlActionRepository implements ActionRepository {
     ];
 
     for (const dir of dirs) {
-      if (!(await RNFS.exists(dir))) {
-        await RNFS.mkdir(dir);
+      const info = await FileSystem.getInfoAsync(dir);
+      if (!info.exists) {
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       }
     }
   }
@@ -87,29 +85,31 @@ export class YamlActionRepository implements ActionRepository {
     return actions;
   }
 
-  /**
-   * Scan directory recursively for YAML files
-   */
   private async scanDirectory(dir: string): Promise<Action[]> {
     const actions: Action[] = [];
 
-    if (!(await RNFS.exists(dir))) {
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) {
       return actions;
     }
 
     const scan = async (path: string): Promise<void> => {
-      const items = await RNFS.readDir(path);
+      const normalizedPath = path.endsWith('/') ? path : `${path}/`;
+      const items = await FileSystem.readDirectoryAsync(path);
 
-      for (const item of items) {
-        if (item.isDirectory()) {
-          await scan(item.path);
-        } else if (item.name.endsWith('.yaml') || item.name.endsWith('.yml')) {
+      for (const name of items) {
+        const fullPath = `${normalizedPath}${name}`;
+        const itemInfo = await FileSystem.getInfoAsync(fullPath);
+
+        if (itemInfo.isDirectory) {
+          await scan(fullPath);
+        } else if (name.endsWith('.yaml') || name.endsWith('.yml')) {
           try {
-            const content = await RNFS.readFile(item.path, 'utf8');
+            const content = await FileSystem.readAsStringAsync(fullPath);
             const action = YAML.parse(content) as Action;
             actions.push(action);
           } catch (error) {
-            console.error(`Error parsing action file ${item.path}:`, error);
+            console.error(`Error parsing action file ${fullPath}:`, error);
           }
         }
       }
@@ -180,48 +180,40 @@ export class YamlActionRepository implements ActionRepository {
     return this.getAll({ enabled: true });
   }
 
-  /**
-   * Create a new action
-   */
   async create(action: Action): Promise<Action> {
     const filePath = this.getActionFilePath(action);
     const dir = filePath.substring(0, filePath.lastIndexOf('/'));
 
-    // Ensure directory exists
-    if (!(await RNFS.exists(dir))) {
-      await RNFS.mkdir(dir);
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
     }
 
-    // Write YAML file
     const yaml = YAML.stringify(action);
-    await RNFS.writeFile(filePath, yaml, 'utf8');
+    await FileSystem.writeAsStringAsync(filePath, yaml);
 
     return action;
   }
 
-  /**
-   * Update an existing action
-   */
   async update(action: Action): Promise<Action> {
     action.modifiedAt = new Date().toISOString();
 
-    // Delete old file if scope changed
     const existingAction = await this.getById(action.id);
     if (existingAction) {
       const oldPath = this.getActionFilePath(existingAction);
       const newPath = this.getActionFilePath(action);
 
-      if (oldPath !== newPath && (await RNFS.exists(oldPath))) {
-        await RNFS.unlink(oldPath);
+      if (oldPath !== newPath) {
+        const info = await FileSystem.getInfoAsync(oldPath);
+        if (info.exists) {
+          await FileSystem.deleteAsync(oldPath, { idempotent: true });
+        }
       }
     }
 
     return this.create(action);
   }
 
-  /**
-   * Delete an action
-   */
   async delete(id: string): Promise<boolean> {
     const action = await this.getById(id);
     if (!action) {
@@ -229,8 +221,9 @@ export class YamlActionRepository implements ActionRepository {
     }
 
     const filePath = this.getActionFilePath(action);
-    if (await RNFS.exists(filePath)) {
-      await RNFS.unlink(filePath);
+    const info = await FileSystem.getInfoAsync(filePath);
+    if (info.exists) {
+      await FileSystem.deleteAsync(filePath, { idempotent: true });
       return true;
     }
 

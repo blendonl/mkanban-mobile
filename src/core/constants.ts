@@ -8,6 +8,8 @@ export const BOARD_FILENAME = "kanban.md";
 export const COLUMNS_FOLDER_NAME = "columns";
 export const COLUMN_METADATA_FILENAME = "column.md";
 export const TASKS_FOLDER_NAME = "tasks";
+export const TASK_FILE_NAME = "task.md";
+export const AGENDA_FOLDER_NAME = "agenda";
 
 // Default column names
 export const DEFAULT_COLUMN_NAMES = ["to-do", "in-progress", "done"];

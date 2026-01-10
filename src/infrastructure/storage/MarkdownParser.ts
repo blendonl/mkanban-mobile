@@ -180,15 +180,23 @@ export class MarkdownParser {
 
   /**
    * Organize metadata with a logical order
-   * Priority fields first, then alphabetically, timestamps at bottom
+   * Priority fields first, then scheduling, then alphabetically, timestamps at bottom
    */
   private organizeMetadata(metadata: Metadata): Metadata {
     const ordered: Metadata = {};
 
-    // Priority fields (in order)
-    const priorityFields = ["id", "title", "parent_id"];
+    const priorityFields = ["id", "title", "parent_id", "project_id"];
 
-    // Timestamp fields (should be at bottom)
+    const schedulingFields = [
+      "scheduled_date",
+      "scheduled_time",
+      "time_block_minutes",
+      "task_type",
+      "calendar_event_id",
+      "recurrence",
+      "meeting_data",
+    ];
+
     const timestampFields = [
       "moved_in_progress_at",
       "moved_in_done_at",
@@ -196,31 +204,35 @@ export class MarkdownParser {
       "created_at",
     ];
 
-    // Add priority fields first
+    const reservedFields = new Set([...priorityFields, ...schedulingFields, ...timestampFields]);
+
     for (const field of priorityFields) {
-      if (field in metadata) {
+      if (field in metadata && metadata[field] != null) {
         ordered[field] = metadata[field];
       }
     }
 
-    // Add other fields alphabetically (excluding timestamps and priority)
+    for (const field of schedulingFields) {
+      if (field in metadata && metadata[field] != null) {
+        ordered[field] = metadata[field];
+      }
+    }
+
     const otherFields = Object.keys(metadata)
-      .filter((key) => !priorityFields.includes(key) && !timestampFields.includes(key))
+      .filter((key) => !reservedFields.has(key))
       .sort();
 
     for (const field of otherFields) {
       ordered[field] = metadata[field];
     }
 
-    // Add timestamp fields at the end (except created_at)
     for (const field of timestampFields.slice(0, -1)) {
-      if (field in metadata) {
+      if (field in metadata && metadata[field] != null) {
         ordered[field] = metadata[field];
       }
     }
 
-    // Add created_at last
-    if ("created_at" in metadata) {
+    if ("created_at" in metadata && metadata["created_at"] != null) {
       ordered["created_at"] = metadata["created_at"];
     }
 

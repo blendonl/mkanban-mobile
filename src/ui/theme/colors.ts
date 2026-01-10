@@ -144,6 +144,19 @@ export const theme = {
     background: CatppuccinColors.mantle,
     overlay: 'rgba(0, 0, 0, 0.7)',
   },
+
+  // Glassmorphism
+  glass: {
+    background: 'rgba(24, 24, 37, 0.65)',
+    border: 'rgba(255, 255, 255, 0.08)',
+    highlight: 'rgba(255, 255, 255, 0.04)',
+    tint: {
+      blue: 'rgba(137, 180, 250, 0.12)',
+      purple: 'rgba(180, 190, 254, 0.12)',
+      neutral: 'rgba(69, 71, 90, 0.6)',
+    },
+    blur: 20,
+  },
 };
 
 export default theme;

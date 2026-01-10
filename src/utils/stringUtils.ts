@@ -30,6 +30,13 @@ export function getSafeFilename(name: string): string {
   safeName = safeName.replace(/-+/g, "-");
   // Remove leading/trailing dashes
   safeName = safeName.replace(/^-+|-+$/g, "");
+
+  const MAX_FILENAME_LENGTH = 100;
+  if (safeName.length > MAX_FILENAME_LENGTH) {
+    safeName = safeName.substring(0, MAX_FILENAME_LENGTH);
+    safeName = safeName.replace(/-+$/g, "");
+  }
+
   return safeName || "unnamed";
 }
 

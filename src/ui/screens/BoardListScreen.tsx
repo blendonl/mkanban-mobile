@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useLayoutEffect } from 'react';
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,17 +7,22 @@ import {
   TouchableOpacity,
   RefreshControl,
   TextInput,
-} from 'react-native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { Board } from '../../domain/entities/Board';
-import { getBoardService } from '../../core/DependencyContainer';
-import EmptyState from '../components/EmptyState';
-import theme from '../theme';
-import alertService from '../../services/AlertService';
-import logger from '../../utils/logger';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { StackNavigationProp } from "@react-navigation/stack";
+import { Board } from "../../domain/entities/Board";
+import { getBoardService } from "../../core/DependencyContainer";
+import { useCurrentProject } from "../../core/ProjectContext";
+import EmptyState from "../components/EmptyState";
+import theme from "../theme";
+import alertService from "../../services/AlertService";
+import logger from "../../utils/logger";
+import { BoardStackParamList } from "../navigation/TabNavigator";
 
-type BoardListScreenNavigationProp = StackNavigationProp<RootStackParamList, 'BoardList'>;
+type BoardListScreenNavigationProp = StackNavigationProp<
+  BoardStackParamList,
+  "BoardList"
+>;
 
 interface Props {
   navigation: BoardListScreenNavigationProp;
@@ -28,37 +33,33 @@ export default function BoardListScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [newBoardName, setNewBoardName] = useState('');
-  const [newBoardDescription, setNewBoardDescription] = useState('');
+  const [newBoardName, setNewBoardName] = useState("");
+  const [newBoardDescription, setNewBoardDescription] = useState("");
 
   const boardService = getBoardService();
-
-  // Add settings button to header
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Settings')}
-          style={{ marginRight: 16 }}
-        >
-          <Text style={{ fontSize: 20, color: theme.header.text }}>⚙️</Text>
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
+  const { currentProject } = useCurrentProject();
 
   const loadBoards = useCallback(async () => {
+    if (!currentProject) {
+      setBoards([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
-      const allBoards = await boardService.getAllBoards();
-      setBoards(allBoards);
+      const projectBoards = await boardService.getBoardsByProject(
+        currentProject.id,
+      );
+      setBoards(projectBoards);
     } catch (error) {
-      logger.error('Failed to load boards', error);
-      alertService.showError('Failed to load boards');
+      logger.error("Failed to load boards", error);
+      alertService.showError("Failed to load boards");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [boardService]);
+  }, [boardService, currentProject]);
 
   useEffect(() => {
     loadBoards();
@@ -70,45 +71,43 @@ export default function BoardListScreen({ navigation }: Props) {
   }, [loadBoards]);
 
   const handleCreateBoard = async () => {
+    if (!currentProject) {
+      alertService.showError("Please select a project first");
+      return;
+    }
+
     if (!newBoardName.trim()) {
-      alertService.showValidationError('Board name is required');
+      alertService.showValidationError("Board name is required");
       return;
     }
 
     try {
-      const newBoard = await boardService.createBoard(
+      const newBoard = await boardService.createBoardInProject(
+        currentProject.id,
         newBoardName.trim(),
-        newBoardDescription.trim() || undefined
+        newBoardDescription.trim() || undefined,
       );
 
-      if (newBoard) {
-        // Add default columns: to-do, in-progress, done
-        await boardService.addColumnToBoard(newBoard, 'to-do');
-        await boardService.addColumnToBoard(newBoard, 'in-progress');
-        await boardService.addColumnToBoard(newBoard, 'done');
-
-        // Save the board with the new columns
-        await boardService.saveBoard(newBoard);
-
-        setShowCreateDialog(false);
-        setNewBoardName('');
-        setNewBoardDescription('');
-        await loadBoards();
-        // Navigate to the new board
-        navigation.navigate('Board', { boardId: newBoard.id });
-      }
+      setShowCreateDialog(false);
+      setNewBoardName("");
+      setNewBoardDescription("");
+      await loadBoards();
+      navigation.navigate("Board", { boardId: newBoard.id });
     } catch (error) {
-      logger.error('Failed to create board', error, { name: newBoardName });
-      alertService.showError('Failed to create board');
+      logger.error("Failed to create board", error, { name: newBoardName });
+      alertService.showError("Failed to create board");
     }
   };
 
   const handleBoardPress = (board: Board) => {
-    navigation.navigate('Board', { boardId: board.id });
+    navigation.navigate("Board", { boardId: board.id });
   };
 
   const getTotalItemCount = (board: Board): number => {
-    return board.columns.reduce((total, column) => total + column.items.length, 0);
+    return board.columns.reduce(
+      (total, column) => total + column.tasks.length,
+      0,
+    );
   };
 
   const renderBoardCard = ({ item: board }: { item: Board }) => (
@@ -131,23 +130,41 @@ export default function BoardListScreen({ navigation }: Props) {
     </TouchableOpacity>
   );
 
+  if (!currentProject) {
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <View style={styles.centerContainer}>
+          <EmptyState
+            title="No Project Selected"
+            message="Please select or create a project first to view boards"
+            actionLabel="Go to Projects"
+            onAction={() => navigation.navigate("Projects" as any)}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (loading) {
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.loadingText}>Loading boards...</Text>
-      </View>
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <View style={styles.centerContainer}>
+          <Text style={styles.loadingText}>Loading boards...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (showCreateDialog) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["top"]}>
         <View style={styles.dialogContainer}>
           <Text style={styles.dialogTitle}>Create New Board</Text>
 
           <TextInput
             style={styles.input}
             placeholder="Board Name *"
+            placeholderTextColor={theme.text.muted}
             value={newBoardName}
             onChangeText={setNewBoardName}
             autoFocus
@@ -156,6 +173,7 @@ export default function BoardListScreen({ navigation }: Props) {
           <TextInput
             style={[styles.input, styles.textArea]}
             placeholder="Description (optional)"
+            placeholderTextColor={theme.text.muted}
             value={newBoardDescription}
             onChangeText={setNewBoardDescription}
             multiline
@@ -167,31 +185,56 @@ export default function BoardListScreen({ navigation }: Props) {
               style={[styles.dialogButton, styles.cancelButton]}
               onPress={() => {
                 setShowCreateDialog(false);
-                setNewBoardName('');
-                setNewBoardDescription('');
+                setNewBoardName("");
+                setNewBoardDescription("");
               }}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.dialogButton, styles.createButton]}
+              style={[styles.dialogButton, styles.createButtonStyle]}
               onPress={handleCreateBoard}
             >
               <Text style={styles.createButtonText}>Create</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      <View style={styles.screenHeader}>
+        <View style={styles.headerLeft} />
+        <TouchableOpacity
+          style={styles.settingsButton}
+          onPress={() => navigation.navigate("Settings")}
+        >
+          <Text style={styles.settingsIcon}>⚙</Text>
+        </TouchableOpacity>
+      </View>
+
+      {currentProject && (
+        <View style={styles.projectBanner}>
+          <View
+            style={[
+              styles.projectColor,
+              { backgroundColor: currentProject.color },
+            ]}
+          />
+          <Text style={styles.projectBannerText}>{currentProject.name}</Text>
+        </View>
+      )}
       {boards.length === 0 ? (
         <EmptyState
           title="No Boards Yet"
-          message="Create your first board to start organizing your tasks"
+          message={
+            currentProject
+              ? `Create your first board in ${currentProject.name}`
+              : "Create your first board to start organizing your tasks"
+          }
           actionLabel="Create Board"
           onAction={() => setShowCreateDialog(true)}
         />
@@ -202,12 +245,15 @@ export default function BoardListScreen({ navigation }: Props) {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.accent.primary}
+            />
           }
         />
       )}
 
-      {/* Floating Action Button */}
       {boards.length > 0 && (
         <TouchableOpacity
           style={styles.fab}
@@ -216,7 +262,7 @@ export default function BoardListScreen({ navigation }: Props) {
           <Text style={styles.fabText}>+</Text>
         </TouchableOpacity>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -225,10 +271,53 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.background.primary,
   },
+  screenHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.sm,
+  },
+  headerLeft: {
+    width: 40,
+  },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.glass.tint.neutral,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.glass.border,
+  },
+  settingsIcon: {
+    fontSize: 18,
+    color: theme.text.secondary,
+  },
+  projectBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.background.secondary,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border.primary,
+  },
+  projectColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: theme.spacing.sm,
+  },
+  projectBannerText: {
+    color: theme.text.secondary,
+    fontSize: theme.typography.fontSizes.md,
+  },
   centerContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     backgroundColor: theme.background.primary,
   },
   loadingText: {
@@ -237,15 +326,15 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: theme.spacing.lg,
+    paddingBottom: 100,
   },
   boardCard: {
-    backgroundColor: theme.card.background,
+    backgroundColor: theme.glass.tint.neutral,
     borderRadius: theme.radius.card,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     borderWidth: 1,
-    borderColor: theme.card.border,
-    ...theme.shadows.card,
+    borderColor: theme.glass.border,
   },
   boardName: {
     ...theme.typography.textStyles.h3,
@@ -258,24 +347,24 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.md,
   },
   boardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   boardStats: {
     ...theme.typography.textStyles.bodySmall,
     color: theme.text.tertiary,
   },
   fab: {
-    position: 'absolute',
+    position: "absolute",
     right: theme.spacing.xl,
-    bottom: theme.spacing.xl,
+    bottom: 100,
     width: theme.ui.FAB_SIZE,
     height: theme.ui.FAB_SIZE,
     borderRadius: theme.radius.fab,
     backgroundColor: theme.accent.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     ...theme.shadows.fab,
   },
   fabText: {
@@ -305,11 +394,11 @@ const styles = StyleSheet.create({
   },
   textArea: {
     height: 100,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
   },
   dialogButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "flex-end",
     marginTop: theme.spacing.xl,
   },
   dialogButton: {
@@ -325,7 +414,7 @@ const styles = StyleSheet.create({
     color: theme.button.secondary.text,
     ...theme.typography.textStyles.button,
   },
-  createButton: {
+  createButtonStyle: {
     backgroundColor: theme.button.primary.background,
   },
   createButtonText: {

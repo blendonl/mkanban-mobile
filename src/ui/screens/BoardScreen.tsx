@@ -1,32 +1,43 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-} from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RouteProp } from '@react-navigation/native';
-import { RootStackParamList } from '../navigation/AppNavigator';
-import { Board } from '../../domain/entities/Board';
-import { Task } from '../../domain/entities/Task';
-import { getBoardService, getTaskService } from '../../core/DependencyContainer';
-import ColumnCard from '../components/ColumnCard';
-import EmptyState from '../components/EmptyState';
-import MoveToColumnModal from '../components/MoveToColumnModal';
-import ParentManagementModal from '../components/ParentManagementModal';
-import ParentFormModal from '../components/ParentFormModal';
-import { Parent } from '../../domain/entities/Parent';
-import { ParentColor } from '../../core/enums';
-import { generateIdFromName, now } from '../../utils';
-import theme from '../theme';
-import alertService from '../../services/AlertService';
-import logger from '../../utils/logger';
+  Alert,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
+import { StackNavigationProp } from "@react-navigation/stack";
+import { RouteProp } from "@react-navigation/native";
+import { RootStackParamList } from "../navigation/AppNavigator";
+import { Board } from "../../domain/entities/Board";
+import { Task } from "../../domain/entities/Task";
+import { Column } from "../../domain/entities/Column";
+import {
+  getBoardService,
+  getTaskService,
+} from "../../core/DependencyContainer";
+import ColumnCard from "../components/ColumnCard";
+import EmptyState from "../components/EmptyState";
+import MoveToColumnModal from "../components/MoveToColumnModal";
+import ParentManagementModal from "../components/ParentManagementModal";
+import ParentFormModal from "../components/ParentFormModal";
+import ColumnFormModal from "../components/ColumnFormModal";
+import ColumnActionsModal from "../components/ColumnActionsModal";
+import { Parent } from "../../domain/entities/Parent";
+import { ParentColor } from "../../core/enums";
+import { generateIdFromName, now } from "../../utils";
+import theme from "../theme";
+import alertService from "../../services/AlertService";
+import logger from "../../utils/logger";
 
-type BoardScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Board'>;
-type BoardScreenRouteProp = RouteProp<RootStackParamList, 'Board'>;
+type BoardScreenNavigationProp = StackNavigationProp<
+  RootStackParamList,
+  "Board"
+>;
+type BoardScreenRouteProp = RouteProp<RootStackParamList, "Board">;
 
 interface Props {
   navigation: BoardScreenNavigationProp;
@@ -43,6 +54,10 @@ export default function BoardScreen({ navigation, route }: Props) {
   const [showParentManagement, setShowParentManagement] = useState(false);
   const [showParentForm, setShowParentForm] = useState(false);
   const [editingParent, setEditingParent] = useState<Parent | null>(null);
+  const [showColumnForm, setShowColumnForm] = useState(false);
+  const [editingColumn, setEditingColumn] = useState<Column | null>(null);
+  const [showColumnActions, setShowColumnActions] = useState(false);
+  const [selectedColumn, setSelectedColumn] = useState<Column | null>(null);
 
   const boardService = getBoardService();
   const taskService = getTaskService();
@@ -53,17 +68,18 @@ export default function BoardScreen({ navigation, route }: Props) {
     const loadBoard = async () => {
       try {
         const loadedBoard = await boardService.getBoardById(boardId);
+
         if (loadedBoard) {
           setBoard(loadedBoard);
           // Update navigation title
           navigation.setOptions({ title: loadedBoard.name });
         } else {
-          alertService.showError('Board not found');
+          alertService.showError("Board not found");
           navigation.goBack();
         }
       } catch (error) {
-        logger.error('Failed to load board', error, { boardId });
-        alertService.showError('Failed to load board');
+        logger.error("Failed to load board", error, { boardId });
+        alertService.showError("Failed to load board");
         navigation.goBack();
       } finally {
         setLoading(false);
@@ -89,7 +105,7 @@ export default function BoardScreen({ navigation, route }: Props) {
             onPress={() => setShowParentGroups(!showParentGroups)}
           >
             <Text style={styles.headerButtonText}>
-              {showParentGroups ? '📋 List' : '📁 Groups'}
+              {showParentGroups ? "📋 List" : "📁 Groups"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -106,14 +122,14 @@ export default function BoardScreen({ navigation, route }: Props) {
         setBoard(updatedBoard);
       }
     } catch (error) {
-      logger.error('Failed to refresh board', error, { boardId: board.id });
-      alertService.showError('Failed to refresh board');
+      logger.error("Failed to refresh board", error, { boardId: board.id });
+      alertService.showError("Failed to refresh board");
     }
   }, [board, boardService]);
 
   const handleTaskPress = (task: Task) => {
     if (!board) return;
-    navigation.navigate('ItemDetail', { boardId: board.id, itemId: task.id });
+    navigation.navigate("ItemDetail", { boardId: board.id, itemId: task.id });
   };
 
   const handleTaskLongPress = async (task: Task) => {
@@ -128,14 +144,20 @@ export default function BoardScreen({ navigation, route }: Props) {
 
     try {
       // Find target column
-      const targetColumn = board.columns.find((col) => col.id === targetColumnId);
+      const targetColumn = board.columns.find(
+        (col) => col.id === targetColumnId,
+      );
       if (!targetColumn) {
-        alertService.showError('Target column not found');
+        alertService.showError("Target column not found");
         return;
       }
 
       // Move task
-      await taskService.moveTaskBetweenColumns(board, selectedTask.id, targetColumnId);
+      await taskService.moveTaskBetweenColumns(
+        board,
+        selectedTask.id,
+        targetColumnId,
+      );
 
       // Save board
       await boardService.saveBoard(board);
@@ -150,9 +172,12 @@ export default function BoardScreen({ navigation, route }: Props) {
       setShowMoveModal(false);
       setSelectedTask(null);
     } catch (error) {
-      logger.error('Failed to move task', error, { taskId: selectedTask.id, targetColumnId });
+      logger.error("Failed to move task", error, {
+        taskId: selectedTask.id,
+        targetColumnId,
+      });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      alertService.showError('Failed to move task');
+      alertService.showError("Failed to move task");
     }
   };
 
@@ -160,7 +185,7 @@ export default function BoardScreen({ navigation, route }: Props) {
     if (!board) return;
     // Navigate to ItemDetail in create mode with the column ID
     setSelectedColumnId(columnId);
-    navigation.navigate('ItemDetail', { boardId: board.id, columnId });
+    navigation.navigate("ItemDetail", { boardId: board.id, columnId });
   };
 
   // Parent Management Handlers
@@ -196,17 +221,17 @@ export default function BoardScreen({ navigation, route }: Props) {
       // Refresh board
       await refreshBoard();
 
-      alertService.showSuccess('Parent deleted successfully');
+      alertService.showSuccess("Parent deleted successfully");
     } catch (error) {
-      logger.error('Failed to delete parent', error, { parentId });
-      alertService.showError('Failed to delete parent');
+      logger.error("Failed to delete parent", error, { parentId });
+      alertService.showError("Failed to delete parent");
     }
   };
 
   const handleSaveParent = async (
     name: string,
     color: ParentColor,
-    parentId?: string
+    parentId?: string,
   ) => {
     try {
       if (parentId) {
@@ -222,7 +247,7 @@ export default function BoardScreen({ navigation, route }: Props) {
           generateIdFromName(name),
           name,
           color,
-          now()
+          now(),
         );
         board.parents.push(newParent);
       }
@@ -233,16 +258,169 @@ export default function BoardScreen({ navigation, route }: Props) {
       // Refresh board
       await refreshBoard();
 
-      alertService.showSuccess(`Parent ${parentId ? 'updated' : 'created'} successfully`);
+      alertService.showSuccess(
+        `Parent ${parentId ? "updated" : "created"} successfully`,
+      );
     } catch (error) {
-      logger.error('Failed to save parent', error, { parentId, name });
+      logger.error("Failed to save parent", error, { parentId, name });
       throw error; // Re-throw to be handled by the form modal
     }
   };
 
+  // Column Management Handlers
+  const handleCreateColumn = () => {
+    setEditingColumn(null);
+    setShowColumnForm(true);
+  };
+
+  const handleSaveColumn = async (
+    name: string,
+    limit?: number,
+    columnId?: string,
+  ) => {
+    try {
+      if (columnId) {
+        // Edit existing
+        const column = board.columns.find((c) => c.id === columnId);
+        if (column) {
+          column.name = name;
+          column.limit = limit || null;
+        }
+      } else {
+        // Create new
+        await boardService.addColumnToBoard(board, name, board.columns.length);
+        if (limit) {
+          const newColumn = board.columns[board.columns.length - 1];
+          newColumn.limit = limit;
+        }
+      }
+
+      await boardService.saveBoard(board);
+      await refreshBoard();
+      alertService.showSuccess(`Column ${columnId ? "updated" : "created"}`);
+    } catch (error) {
+      logger.error("Failed to save column", error);
+      throw error; // Re-throw for modal to handle
+    }
+  };
+
+  const handleColumnMenu = (column: Column) => {
+    setSelectedColumn(column);
+    setShowColumnActions(true);
+  };
+
+  const handleRenameColumn = () => {
+    setEditingColumn(selectedColumn);
+    setShowColumnActions(false);
+    setShowColumnForm(true);
+  };
+
+  const handleMoveColumn = async (direction: "left" | "right") => {
+    if (!selectedColumn) return;
+
+    const currentIndex = board.columns.findIndex(
+      (c) => c.id === selectedColumn.id,
+    );
+    const newIndex = direction === "left" ? currentIndex - 1 : currentIndex + 1;
+
+    if (newIndex < 0 || newIndex >= board.columns.length) return;
+
+    // Swap positions
+    const targetColumn = board.columns[newIndex];
+    const tempPos = selectedColumn.position;
+    selectedColumn.position = targetColumn.position;
+    targetColumn.position = tempPos;
+
+    // Re-sort
+    board.columns.sort(
+      (a, b) => a.position - b.position || a.name.localeCompare(b.name),
+    );
+
+    await boardService.saveBoard(board);
+    await refreshBoard();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowColumnActions(false);
+  };
+
+  const handleClearColumn = async () => {
+    if (!selectedColumn || selectedColumn.tasks.length === 0) return;
+
+    Alert.alert(
+      "Clear Column",
+      `Delete all ${selectedColumn.tasks.length} tasks in "${selectedColumn.name}"? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              for (const task of [...selectedColumn.tasks]) {
+                await taskService.deleteTask(board, task.id);
+              }
+              await refreshBoard();
+              await Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Success,
+              );
+              setShowColumnActions(false);
+            } catch (error) {
+              logger.error("Failed to clear column", error);
+              alertService.showError("Failed to clear column");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleMoveAllTasks = () => {
+    if (!selectedColumn || selectedColumn.tasks.length === 0) return;
+    setShowColumnActions(false);
+    // Use the first task to trigger the move modal
+    setSelectedTask(selectedColumn.tasks[0]);
+    setShowMoveModal(true);
+  };
+
+  const handleDeleteColumn = async () => {
+    if (!selectedColumn) return;
+
+    if (selectedColumn.tasks.length > 0) {
+      alertService.showError(
+        "Cannot delete column with tasks. Clear tasks first.",
+      );
+      return;
+    }
+
+    Alert.alert("Delete Column", `Delete "${selectedColumn.name}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await boardService.removeColumnFromBoard(board, selectedColumn.id);
+            await boardService.saveBoard(board);
+            await refreshBoard();
+            await Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Success,
+            );
+            setShowColumnActions(false);
+          } catch (error) {
+            logger.error("Failed to delete column", error);
+            alertService.showError(
+              error instanceof Error
+                ? error.message
+                : "Failed to delete column",
+            );
+          }
+        },
+      },
+    ]);
+  };
+
   // Listen for navigation changes to refresh board
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubscribe = navigation.addListener("focus", () => {
       refreshBoard();
     });
 
@@ -269,7 +447,7 @@ export default function BoardScreen({ navigation, route }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       {/* Board Info */}
       {board.description && (
         <View style={styles.descriptionContainer}>
@@ -280,8 +458,12 @@ export default function BoardScreen({ navigation, route }: Props) {
       {/* Kanban Columns */}
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={false}
+        showsHorizontalScrollIndicator={true}
+        indicatorStyle="white"
         contentContainerStyle={styles.columnsContainer}
+        snapToInterval={296}
+        snapToAlignment="start"
+        decelerationRate="fast"
       >
         {board.columns.map((column) => (
           <ColumnCard
@@ -292,6 +474,7 @@ export default function BoardScreen({ navigation, route }: Props) {
             onTaskPress={handleTaskPress}
             onTaskLongPress={handleTaskLongPress}
             onAddTask={() => handleAddItem(column.id)}
+            onColumnMenu={handleColumnMenu}
           />
         ))}
       </ScrollView>
@@ -330,7 +513,53 @@ export default function BoardScreen({ navigation, route }: Props) {
           setEditingParent(null);
         }}
       />
-    </View>
+
+      {/* Column Form Modal */}
+      <ColumnFormModal
+        visible={showColumnForm}
+        column={editingColumn}
+        existingColumns={board.columns}
+        onSave={handleSaveColumn}
+        onClose={() => {
+          setShowColumnForm(false);
+          setEditingColumn(null);
+        }}
+      />
+
+      {/* Column Actions Modal */}
+      {selectedColumn && (
+        <ColumnActionsModal
+          visible={showColumnActions}
+          column={selectedColumn}
+          canMoveLeft={
+            board.columns.findIndex((c) => c.id === selectedColumn.id) > 0
+          }
+          canMoveRight={
+            board.columns.findIndex((c) => c.id === selectedColumn.id) <
+            board.columns.length - 1
+          }
+          onClose={() => {
+            setShowColumnActions(false);
+            setSelectedColumn(null);
+          }}
+          onRename={handleRenameColumn}
+          onMoveLeft={() => handleMoveColumn("left")}
+          onMoveRight={() => handleMoveColumn("right")}
+          onClearTasks={handleClearColumn}
+          onMoveAllTasks={handleMoveAllTasks}
+          onDelete={handleDeleteColumn}
+        />
+      )}
+
+      {/* Add Column FAB */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={handleCreateColumn}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.fabText}>+ Column</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
   );
 }
 
@@ -341,8 +570,8 @@ const styles = StyleSheet.create({
   },
   centerContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   loadingText: {
     ...theme.typography.textStyles.body,
@@ -363,19 +592,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
   },
   headerButtonContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: theme.spacing.sm,
   },
   headerButton: {
     marginRight: theme.spacing.lg,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     borderRadius: theme.radius.button,
   },
   headerButtonText: {
     color: theme.header.text,
     ...theme.typography.textStyles.body,
     fontWeight: theme.typography.fontWeights.semibold,
+  },
+  fab: {
+    position: "absolute",
+    bottom: theme.spacing.xl,
+    right: theme.spacing.xl,
+    backgroundColor: theme.accent.primary,
+    borderRadius: theme.radius.round,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    ...theme.shadows.medium,
+    elevation: 5,
+  },
+  fabText: {
+    color: "#FFFFFF",
+    ...theme.typography.textStyles.body,
+    fontWeight: theme.typography.fontWeights.bold,
   },
 });

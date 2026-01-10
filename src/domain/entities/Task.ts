@@ -4,9 +4,24 @@
  * MVP version: Git and JIRA fields excluded
  */
 
-import { TaskId, ColumnId, ParentId, Timestamp, FilePath, Metadata } from "../../core/types";
+import { TaskId, ColumnId, ParentId, ProjectId, Timestamp, FilePath, Metadata } from "../../core/types";
 import { now } from "../../utils/dateUtils";
 import { generateIdFromName, getSafeFilename } from "../../utils/stringUtils";
+
+export type TaskType = 'regular' | 'meeting' | 'milestone';
+
+export interface MeetingData {
+  attendees?: string[];
+  location?: string;
+  meetingLink?: string;
+}
+
+export interface RecurrenceRule {
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval?: number;
+  endDate?: string;
+  count?: number;
+}
 
 export interface TaskProps {
   id?: TaskId;
@@ -14,12 +29,21 @@ export interface TaskProps {
   column_id: ColumnId;
   description?: string;
   parent_id?: ParentId | null;
+  project_id?: ProjectId | null;
   created_at?: Timestamp;
   moved_in_progress_at?: Timestamp | null;
   moved_in_done_at?: Timestamp | null;
   worked_on_for?: string | null;
   file_path?: FilePath | null;
   metadata?: Metadata;
+  // Scheduling fields
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
+  time_block_minutes?: number | null;
+  task_type?: TaskType;
+  calendar_event_id?: string | null;
+  recurrence?: RecurrenceRule | null;
+  meeting_data?: MeetingData | null;
 }
 
 export class Task {
@@ -28,24 +52,42 @@ export class Task {
   column_id: ColumnId;
   description: string;
   parent_id: ParentId | null;
+  project_id: ProjectId | null;
   created_at: Timestamp;
   moved_in_progress_at: Timestamp | null;
   moved_in_done_at: Timestamp | null;
-  worked_on_for: string | null; // Format: "HH:MM"
+  worked_on_for: string | null;
   file_path: FilePath | null;
   metadata: Metadata;
+  // Scheduling fields
+  scheduled_date: string | null;
+  scheduled_time: string | null;
+  time_block_minutes: number | null;
+  task_type: TaskType;
+  calendar_event_id: string | null;
+  recurrence: RecurrenceRule | null;
+  meeting_data: MeetingData | null;
 
   constructor(props: TaskProps) {
     this.title = props.title;
     this.column_id = props.column_id;
     this.description = props.description || "";
     this.parent_id = props.parent_id !== undefined ? props.parent_id : null;
+    this.project_id = props.project_id !== undefined ? props.project_id : null;
     this.created_at = props.created_at || now();
     this.moved_in_progress_at = props.moved_in_progress_at !== undefined ? props.moved_in_progress_at : null;
     this.moved_in_done_at = props.moved_in_done_at !== undefined ? props.moved_in_done_at : null;
     this.worked_on_for = props.worked_on_for !== undefined ? props.worked_on_for : null;
     this.file_path = props.file_path !== undefined ? props.file_path : null;
     this.metadata = props.metadata || {};
+    // Scheduling fields
+    this.scheduled_date = props.scheduled_date !== undefined ? props.scheduled_date : null;
+    this.scheduled_time = props.scheduled_time !== undefined ? props.scheduled_time : null;
+    this.time_block_minutes = props.time_block_minutes !== undefined ? props.time_block_minutes : null;
+    this.task_type = props.task_type || 'regular';
+    this.calendar_event_id = props.calendar_event_id !== undefined ? props.calendar_event_id : null;
+    this.recurrence = props.recurrence !== undefined ? props.recurrence : null;
+    this.meeting_data = props.meeting_data !== undefined ? props.meeting_data : null;
 
     // Auto-generate ID if not provided
     if (props.id) {
@@ -135,7 +177,8 @@ export class Task {
    * Get the issue type from metadata, defaults to "Task"
    */
   getIssueType(): string {
-    return this.metadata.issue_type || "Task";
+    const issueType = this.metadata.issue_type;
+    return typeof issueType === 'string' ? issueType : "Task";
   }
 
   /**
@@ -184,9 +227,34 @@ export class Task {
     }
   }
 
-  /**
-   * Convert to plain object for serialization
-   */
+  get isScheduled(): boolean {
+    return this.scheduled_date !== null;
+  }
+
+  get isMeeting(): boolean {
+    return this.task_type === 'meeting';
+  }
+
+  get scheduledDateTime(): Date | null {
+    if (!this.scheduled_date) return null;
+    const dateStr = this.scheduled_time
+      ? `${this.scheduled_date}T${this.scheduled_time}`
+      : `${this.scheduled_date}T00:00`;
+    return new Date(dateStr);
+  }
+
+  schedule(date: string, time?: string, durationMinutes?: number): void {
+    this.scheduled_date = date;
+    this.scheduled_time = time || null;
+    this.time_block_minutes = durationMinutes || null;
+  }
+
+  unschedule(): void {
+    this.scheduled_date = null;
+    this.scheduled_time = null;
+    this.time_block_minutes = null;
+  }
+
   toDict(): Record<string, any> {
     const result: Record<string, any> = {
       id: this.id,
@@ -194,23 +262,28 @@ export class Task {
       column_id: this.column_id,
       description: this.description,
       parent_id: this.parent_id,
+      project_id: this.project_id,
       created_at: this.created_at,
       moved_in_progress_at: this.moved_in_progress_at,
       moved_in_done_at: this.moved_in_done_at,
       worked_on_for: this.worked_on_for,
     };
 
-    // Add metadata if present
     if (Object.keys(this.metadata).length > 0) {
       result.metadata = this.metadata;
     }
 
+    if (this.scheduled_date) result.scheduled_date = this.scheduled_date;
+    if (this.scheduled_time) result.scheduled_time = this.scheduled_time;
+    if (this.time_block_minutes) result.time_block_minutes = this.time_block_minutes;
+    if (this.task_type !== 'regular') result.task_type = this.task_type;
+    if (this.calendar_event_id) result.calendar_event_id = this.calendar_event_id;
+    if (this.recurrence) result.recurrence = this.recurrence;
+    if (this.meeting_data) result.meeting_data = this.meeting_data;
+
     return result;
   }
 
-  /**
-   * Create Task from plain object (deserialization)
-   */
   static fromDict(data: Record<string, any>): Task {
     return new Task({
       id: data.id,
@@ -218,12 +291,20 @@ export class Task {
       column_id: data.column_id,
       description: data.description,
       parent_id: data.parent_id,
+      project_id: data.project_id,
       created_at: data.created_at ? new Date(data.created_at) : undefined,
       moved_in_progress_at: data.moved_in_progress_at ? new Date(data.moved_in_progress_at) : null,
       moved_in_done_at: data.moved_in_done_at ? new Date(data.moved_in_done_at) : null,
       worked_on_for: data.worked_on_for,
       file_path: data.file_path,
       metadata: data.metadata || {},
+      scheduled_date: data.scheduled_date || null,
+      scheduled_time: data.scheduled_time || null,
+      time_block_minutes: data.time_block_minutes || null,
+      task_type: data.task_type || 'regular',
+      calendar_event_id: data.calendar_event_id || null,
+      recurrence: data.recurrence || null,
+      meeting_data: data.meeting_data || null,
     });
   }
 }

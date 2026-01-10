@@ -29,6 +29,7 @@ interface ColumnCardProps {
   onTaskPress: (task: Task) => void;
   onTaskLongPress?: (task: Task) => void;
   onAddTask: () => void;
+  onColumnMenu?: (column: Column) => void;
 }
 
 const ColumnCard = React.memo<ColumnCardProps>(({
@@ -38,6 +39,7 @@ const ColumnCard = React.memo<ColumnCardProps>(({
   onTaskPress,
   onTaskLongPress,
   onAddTask,
+  onColumnMenu,
 }) => {
   // Create a map of parent IDs to Parent objects for quick lookup
   const parentMap = useMemo(() => {
@@ -142,8 +144,19 @@ const ColumnCard = React.memo<ColumnCardProps>(({
       {/* Column Header */}
       <View style={styles.header}>
         <Text style={styles.title}>{column.name}</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{column.tasks.length}</Text>
+        <View style={styles.headerRight}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{column.tasks.length}</Text>
+          </View>
+          {onColumnMenu && (
+            <TouchableOpacity
+              style={styles.menuButton}
+              onPress={() => onColumnMenu(column)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.menuIcon}>⋮</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -237,5 +250,18 @@ const styles = StyleSheet.create({
     color: theme.accent.primary,
     ...theme.typography.textStyles.body,
     fontWeight: theme.typography.fontWeights.semibold,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  menuButton: {
+    padding: theme.spacing.xs,
+  },
+  menuIcon: {
+    fontSize: 20,
+    color: theme.text.secondary,
+    fontWeight: 'bold',
   },
 });

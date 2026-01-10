@@ -3,7 +3,14 @@
  * Ported from Python: src/domain/entities/board.py
  */
 
-import { BoardId, ColumnId, ParentId, Timestamp, FilePath } from "../../core/types";
+import {
+  BoardId,
+  ColumnId,
+  ParentId,
+  ProjectId,
+  Timestamp,
+  FilePath,
+} from "../../core/types";
 import { now } from "../../utils/dateUtils";
 import { generateIdFromName } from "../../utils/stringUtils";
 import { Column } from "./Column";
@@ -13,6 +20,7 @@ import { Parent } from "./Parent";
 export interface BoardProps {
   id?: BoardId;
   name: string;
+  project_id: ProjectId;
   description?: string;
   file_path?: FilePath | null;
   columns?: Column[];
@@ -23,6 +31,7 @@ export interface BoardProps {
 export class Board {
   id: BoardId;
   name: string;
+  project_id: ProjectId;
   description: string;
   file_path: FilePath | null;
   columns: Column[];
@@ -31,6 +40,7 @@ export class Board {
 
   constructor(props: BoardProps) {
     this.name = props.name;
+    this.project_id = props.project_id;
     this.description = props.description || "";
     this.file_path = props.file_path !== undefined ? props.file_path : null;
     this.columns = props.columns || [];
@@ -39,17 +49,22 @@ export class Board {
 
     // Auto-generate ID if not provided
     if (props.id) {
+      console.log("i am iddddddddddddd", props.id);
       this.id = props.id;
     } else if (this.file_path) {
       // Extract ID from file path (directory name)
       const pathParts = this.file_path.split("/");
-      const dirName = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1];
+      console.log(pathParts);
+      const dirName =
+        pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1];
+      console.log(dirName);
       this.id = dirName;
+
       if (!this.name || this.name === dirName) {
         this.name = dirName;
       }
     } else {
-      this.id = generateIdFromName(this.name) || "unnamed_board";
+      this.id = generateIdFromName(`${this.project_id}_${this.name}`) || "unnamed_board";
     }
   }
 
@@ -64,7 +79,10 @@ export class Board {
    * Add a new column to the board
    */
   addColumn(name: string, position?: number | null): Column {
-    const columnPosition = position !== undefined && position !== null ? position : this.columns.length;
+    const columnPosition =
+      position !== undefined && position !== null
+        ? position
+        : this.columns.length;
 
     const column = new Column({ name, position: columnPosition });
     this.columns.push(column);
@@ -103,7 +121,9 @@ export class Board {
     if (this.columns.length === 0) {
       return null;
     }
-    return this.columns.reduce((min, col) => (col.position < min.position ? col : min));
+    return this.columns.reduce((min, col) =>
+      col.position < min.position ? col : min,
+    );
   }
 
   /**
@@ -153,6 +173,7 @@ export class Board {
     return {
       id: this.id,
       name: this.name,
+      project_id: this.project_id,
       description: this.description,
       created_at: this.created_at,
     };
@@ -165,6 +186,7 @@ export class Board {
     return new Board({
       id: data.id,
       name: data.name,
+      project_id: data.project_id,
       description: data.description,
       created_at: data.created_at ? new Date(data.created_at) : undefined,
       file_path: data.file_path,

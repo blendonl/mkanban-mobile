@@ -1,121 +1,202 @@
 /**
  * File System Manager for MKanban mobile app
- * Wraps react-native-fs operations and provides utility methods
+ * Wraps expo-file-system operations and provides utility methods
  * Ported from Python: src/utils/file_utils.py and pathlib.Path operations
  */
 
-import RNFS from 'react-native-fs';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from "react-native";
 import { getSafeFilename } from "../../utils/stringUtils";
 import { FileSystemObserver } from "../../core/FileSystemObserver";
+import { getDefaultExternalDataPath, getDefaultExternalBoardsPath, hasExternalStorageAccess, StoragePermission } from "./StoragePermission";
+
+export type NoteType = 'general' | 'meetings' | 'daily';
 
 export class FileSystemManager {
   private baseDirectory: string;
-  private customBoardsDirectory?: string;
+  private customDataDirectory?: string;
   private observers: Set<FileSystemObserver> = new Set();
+  private initialized: boolean = false;
+  private usingExternalStorage: boolean = false;
 
-  constructor(baseDirectory?: string, customBoardsDirectory?: string) {
-    // Use react-native-fs document directory as base, or custom directory for testing
-    this.baseDirectory = baseDirectory || RNFS.DocumentDirectoryPath;
-    this.customBoardsDirectory = customBoardsDirectory;
+  constructor(baseDirectory?: string) {
+    const docDir = FileSystem.documentDirectory || '';
+    this.baseDirectory = baseDirectory || docDir.endsWith('/') ? docDir.slice(0, -1) : docDir;
   }
 
-  /**
-   * Get the boards root directory path
-   * Returns custom path if set, otherwise returns default
-   */
-  getBoardsDirectory(): string {
-    if (this.customBoardsDirectory) {
-      return this.customBoardsDirectory;
+  async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
     }
-    return this.getDefaultBoardsDirectory();
-  }
 
-  /**
-   * Set a custom boards directory
-   * @param path The custom directory path (must be absolute and end with /)
-   */
-  setBoardsDirectory(path: string): void {
-    // Validate path
-    if (!path || typeof path !== 'string') {
-      throw new Error('Boards directory path cannot be empty');
-    }
-    // Ensure path ends with /
-    const normalizedPath = path.endsWith('/') ? path : `${path}/`;
-
-    // Only notify observers if the path actually changed
-    if (this.customBoardsDirectory !== normalizedPath) {
-      this.customBoardsDirectory = normalizedPath;
-      this.notifyBoardsDirectoryChanged(normalizedPath);
-    }
-  }
-
-  /**
-   * Reset to default boards directory
-   */
-  resetToDefaultBoardsDirectory(): void {
-    if (this.customBoardsDirectory !== undefined) {
-      this.customBoardsDirectory = undefined;
-      this.notifyBoardsDirectoryChanged(this.getDefaultBoardsDirectory());
-    }
-  }
-
-  /**
-   * Check if using a custom boards directory
-   */
-  isUsingCustomBoardsDirectory(): boolean {
-    return !!this.customBoardsDirectory;
-  }
-
-  /**
-   * Get the default boards directory (without custom override)
-   *
-   * Android: Uses shared storage (/storage/emulated/0/mkanban/boards/)
-   *          Requires MANAGE_EXTERNAL_STORAGE permission on Android 11+
-   *          Boards are accessible via file managers
-   *
-   * iOS: Uses app-private Documents directory
-   *      Boards stored in app sandbox
-   *
-   * Note: The app requests MANAGE_EXTERNAL_STORAGE permission on first launch
-   * for Android 11+. Users must grant "All files access" in settings.
-   */
-  getDefaultBoardsDirectory(): string {
     if (Platform.OS === 'android') {
-      // Use shared storage on Android (accessible via file managers)
-      // react-native-fs uses paths without file:// prefix
-      return `${RNFS.ExternalStorageDirectoryPath}/mkanban/boards/`;
+      const hasAccess = await hasExternalStorageAccess();
+      if (hasAccess) {
+        const externalDataPath = await getDefaultExternalDataPath();
+        if (externalDataPath) {
+          const normalizedPath = externalDataPath.endsWith('/') ? externalDataPath.slice(0, -1) : externalDataPath;
+
+          const dataCreated = await StoragePermission.createDirectory(normalizedPath);
+          const boardsPath = `${normalizedPath}/boards`;
+          const boardsCreated = await StoragePermission.createDirectory(boardsPath);
+
+          if (dataCreated && boardsCreated) {
+            this.baseDirectory = normalizedPath;
+            this.usingExternalStorage = true;
+            console.log('Using external storage:', this.baseDirectory);
+          } else {
+            console.log('Failed to create external storage directories, using internal storage');
+          }
+        }
+      } else {
+        console.log('External storage not accessible, using internal storage');
+      }
     }
-    // Use app Documents directory on iOS
-    return `${this.baseDirectory}/boards/`;
+
+    if (!this.usingExternalStorage) {
+      await this.ensureDirectoryExists(this.getDataDirectory());
+    }
+
+    this.initialized = true;
   }
 
-  /**
-   * Get a specific board's directory path
-   */
-  getBoardDirectory(boardName: string): string {
-    const safeFilename = getSafeFilename(boardName);
-    return `${this.getBoardsDirectory()}${safeFilename}/`;
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
-  /**
-   * Get a column directory path within a board
-   */
-  getColumnDirectory(boardName: string, columnName: string): string {
-    const boardDir = this.getBoardDirectory(boardName);
-    const safeFilename = getSafeFilename(columnName);
-    return `${boardDir}${safeFilename}/`;
+  isUsingExternalStorage(): boolean {
+    return this.usingExternalStorage;
   }
 
-  /**
-   * Ensure a directory exists, creating it recursively if needed
-   * Equivalent to Python's Path.mkdir(parents=True, exist_ok=True)
-   */
+  getDataDirectory(): string {
+    if (this.customDataDirectory) {
+      return this.customDataDirectory;
+    }
+    if (this.usingExternalStorage) {
+      return `${this.baseDirectory}/`;
+    }
+    return `${this.baseDirectory}/mkanban/`;
+  }
+
+  setDataDirectory(path: string): void {
+    if (!path || typeof path !== 'string') {
+      throw new Error('Data directory path cannot be empty');
+    }
+    const normalizedPath = path.endsWith('/') ? path : `${path}/`;
+    this.customDataDirectory = normalizedPath;
+  }
+
+  getProjectsDirectory(): string {
+    return `${this.getDataDirectory()}projects/`;
+  }
+
+  getProjectDirectory(projectSlug: string): string {
+    const safeSlug = getSafeFilename(projectSlug);
+    return `${this.getProjectsDirectory()}${safeSlug}/`;
+  }
+
+  getProjectBoardsDirectory(projectSlug: string): string {
+    return `${this.getProjectDirectory(projectSlug)}boards/`;
+  }
+
+  getProjectNotesDirectory(projectSlug: string, noteType?: NoteType): string {
+    const notesDir = `${this.getProjectDirectory(projectSlug)}notes/`;
+    if (noteType) {
+      return `${notesDir}${noteType}/`;
+    }
+    return notesDir;
+  }
+
+  getProjectTimeDirectory(projectSlug: string): string {
+    return `${this.getProjectDirectory(projectSlug)}time/logs/`;
+  }
+
+  getGlobalDirectory(): string {
+    return `${this.getDataDirectory()}global/`;
+  }
+
+  getGlobalNotesDirectory(noteType?: NoteType): string {
+    const notesDir = `${this.getGlobalDirectory()}notes/`;
+    if (noteType) {
+      return `${notesDir}${noteType}/`;
+    }
+    return notesDir;
+  }
+
+  getAgendaDirectory(): string {
+    return `${this.getDataDirectory()}agenda/`;
+  }
+
+  getAgendaYearDirectory(year: string | number): string {
+    return `${this.getAgendaDirectory()}${year}/`;
+  }
+
+  getAgendaMonthDirectory(year: string | number, month: string | number): string {
+    const monthStr = month.toString().padStart(2, '0');
+    return `${this.getAgendaYearDirectory(year)}${monthStr}/`;
+  }
+
+  getAgendaDayDirectory(year: string | number, month: string | number, day: string | number): string {
+    const dayStr = day.toString().padStart(2, '0');
+    return `${this.getAgendaMonthDirectory(year, month)}${dayStr}/`;
+  }
+
+  getAgendaDayDirectoryFromDate(date: string): string {
+    const [year, month, day] = date.split('-');
+    return this.getAgendaDayDirectory(year, month, day);
+  }
+
+  async listProjects(): Promise<string[]> {
+    try {
+      const projectsDir = this.getProjectsDirectory();
+      const dirExists = await this.directoryExists(projectsDir);
+      if (!dirExists) {
+        return [];
+      }
+
+      const subdirs = await this.listDirectories(projectsDir);
+      const projects: string[] = [];
+
+      for (const subdirPath of subdirs) {
+        const projectYmlPath = `${subdirPath}project.yml`;
+        const exists = await this.fileExists(projectYmlPath);
+        if (exists) {
+          const projectSlug = subdirPath.split('/').filter(p => p).pop() || '';
+          projects.push(projectSlug);
+        }
+      }
+
+      return projects;
+    } catch (error) {
+      console.error(`Failed to list projects:`, error);
+      return [];
+    }
+  }
+
+  async createProjectStructure(projectSlug: string): Promise<void> {
+    const projectDir = this.getProjectDirectory(projectSlug);
+    await this.ensureDirectoryExists(projectDir);
+    await this.ensureDirectoryExists(this.getProjectBoardsDirectory(projectSlug));
+    await this.ensureDirectoryExists(this.getProjectNotesDirectory(projectSlug, 'general'));
+    await this.ensureDirectoryExists(this.getProjectNotesDirectory(projectSlug, 'meetings'));
+    await this.ensureDirectoryExists(this.getProjectNotesDirectory(projectSlug, 'daily'));
+    await this.ensureDirectoryExists(this.getProjectTimeDirectory(projectSlug));
+  }
+
+
   async ensureDirectoryExists(path: string): Promise<void> {
     try {
-      const exists = await RNFS.exists(path);
-      if (!exists) {
-        await RNFS.mkdir(path);
+      if (Platform.OS === 'android' && this.isExternalStoragePath(path)) {
+        const created = await StoragePermission.createDirectory(path);
+        if (!created) {
+          throw new Error(`Failed to create directory ${path}`);
+        }
+        return;
+      }
+
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info.exists) {
+        await FileSystem.makeDirectoryAsync(path, { intermediates: true });
       }
     } catch (error) {
       const errorMessage = String(error);
@@ -129,33 +210,39 @@ export class FileSystemManager {
     }
   }
 
-  /**
-   * Read file contents as a string
-   * Equivalent to Python's open(file, 'r').read()
-   */
+  private isExternalStoragePath(path: string): boolean {
+    return path.startsWith('/storage/emulated/') || path.startsWith('/sdcard/');
+  }
+
   async readFile(path: string): Promise<string> {
     try {
-      const exists = await RNFS.exists(path);
-      if (!exists) {
+      if (Platform.OS === 'android' && this.isExternalStoragePath(path)) {
+        return await StoragePermission.readFile(path);
+      }
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info.exists) {
         throw new Error(`File does not exist: ${path}`);
       }
-      return await RNFS.readFile(path, 'utf8');
+      return await FileSystem.readAsStringAsync(path);
     } catch (error) {
       throw new Error(`Failed to read file ${path}: ${error}`);
     }
   }
 
-  /**
-   * Write content to a file
-   * Equivalent to Python's open(file, 'w').write(content)
-   */
   async writeFile(path: string, content: string): Promise<void> {
     try {
-      // Ensure parent directory exists
       const parentDir = this.getParentDirectory(path);
       await this.ensureDirectoryExists(parentDir);
 
-      await RNFS.writeFile(path, content, 'utf8');
+      if (Platform.OS === 'android' && this.isExternalStoragePath(path)) {
+        const success = await StoragePermission.writeFile(path, content);
+        if (!success) {
+          throw new Error(`Native write failed for ${path}`);
+        }
+        return;
+      }
+
+      await FileSystem.writeAsStringAsync(path, content);
     } catch (error) {
       const errorMessage = String(error);
       if (errorMessage.includes('WRITE') || errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
@@ -168,15 +255,14 @@ export class FileSystemManager {
     }
   }
 
-  /**
-   * Delete a file
-   * Equivalent to Python's Path.unlink()
-   */
   async deleteFile(path: string): Promise<boolean> {
     try {
-      const exists = await RNFS.exists(path);
-      if (exists) {
-        await RNFS.unlink(path);
+      if (Platform.OS === 'android' && this.isExternalStoragePath(path)) {
+        return await StoragePermission.deleteFile(path);
+      }
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists) {
+        await FileSystem.deleteAsync(path, { idempotent: true });
         return true;
       }
       return false;
@@ -186,22 +272,23 @@ export class FileSystemManager {
     }
   }
 
-  /**
-   * Rename/move a file
-   * Equivalent to Python's Path.rename()
-   */
   async renameFile(oldPath: string, newPath: string): Promise<boolean> {
     try {
-      const exists = await RNFS.exists(oldPath);
-      if (!exists) {
+      if (Platform.OS === 'android' && this.isExternalStoragePath(oldPath)) {
+        const newParentDir = this.getParentDirectory(newPath);
+        await this.ensureDirectoryExists(newParentDir);
+        return await StoragePermission.moveFile(oldPath, newPath);
+      }
+
+      const info = await FileSystem.getInfoAsync(oldPath);
+      if (!info.exists) {
         return false;
       }
 
-      // Ensure parent directory of new path exists
       const newParentDir = this.getParentDirectory(newPath);
       await this.ensureDirectoryExists(newParentDir);
 
-      await RNFS.moveFile(oldPath, newPath);
+      await FileSystem.moveAsync({ from: oldPath, to: newPath });
       return true;
     } catch (error) {
       console.error(`Failed to rename file ${oldPath} to ${newPath}:`, error);
@@ -209,15 +296,11 @@ export class FileSystemManager {
     }
   }
 
-  /**
-   * Delete a directory and all its contents
-   * Equivalent to Python's shutil.rmtree()
-   */
   async deleteDirectory(path: string): Promise<boolean> {
     try {
-      const exists = await RNFS.exists(path);
-      if (exists) {
-        await RNFS.unlink(path);
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists) {
+        await FileSystem.deleteAsync(path, { idempotent: true });
         return true;
       }
       return false;
@@ -227,106 +310,107 @@ export class FileSystemManager {
     }
   }
 
-  /**
-   * List files in a directory, optionally filtering by pattern
-   * Equivalent to Python's Path.glob(pattern)
-   */
   async listFiles(directory: string, pattern?: string): Promise<string[]> {
     try {
-      const exists = await RNFS.exists(directory);
-      if (!exists) {
+      const info = await FileSystem.getInfoAsync(directory);
+      if (!info.exists) {
         return [];
       }
 
-      const items = await RNFS.readDir(directory);
-      // Filter to only files (not directories)
-      const files = items.filter(item => item.isFile());
+      const normalizedDir = directory.endsWith('/') ? directory : `${directory}/`;
+      const items = await FileSystem.readDirectoryAsync(directory);
+      const files: string[] = [];
 
-      if (!pattern) {
-        return files.map(file => file.path);
+      for (const name of items) {
+        const fullPath = `${normalizedDir}${name}`;
+        const itemInfo = await FileSystem.getInfoAsync(fullPath);
+        if (itemInfo.exists && !itemInfo.isDirectory) {
+          if (!pattern) {
+            files.push(fullPath);
+          } else {
+            const regexPattern = this.globToRegex(pattern);
+            if (regexPattern.test(name)) {
+              files.push(fullPath);
+            }
+          }
+        }
       }
 
-      // Simple glob pattern matching (supports *.md, *.txt, etc.)
-      const regexPattern = this.globToRegex(pattern);
-      const filteredFiles = files.filter(file => {
-        const fileName = file.name;
-        return regexPattern.test(fileName);
-      });
-
-      return filteredFiles.map(file => file.path);
+      return files;
     } catch (error) {
       throw new Error(`Failed to list files in ${directory}: ${error}`);
     }
   }
 
-  /**
-   * List directories in a directory
-   */
   async listDirectories(directory: string): Promise<string[]> {
     try {
-      const exists = await RNFS.exists(directory);
-      if (!exists) {
+      const normalizedDir = directory.endsWith('/') ? directory : `${directory}/`;
+
+      if (Platform.OS === 'android' && this.isExternalStoragePath(directory)) {
+        const items = await StoragePermission.listDirectory(directory);
+        return items
+          .filter(item => item.isDirectory)
+          .map(item => `${normalizedDir}${item.name}/`);
+      }
+
+      const info = await FileSystem.getInfoAsync(directory);
+      if (!info.exists) {
         return [];
       }
 
-      const items = await RNFS.readDir(directory);
-      // Filter to only directories (not files)
-      const directories = items.filter(item => item.isDirectory());
+      const items = await FileSystem.readDirectoryAsync(directory);
+      const directories: string[] = [];
 
-      return directories.map(d => d.path + '/');
+      for (const name of items) {
+        const fullPath = `${normalizedDir}${name}`;
+        const itemInfo = await FileSystem.getInfoAsync(fullPath);
+        if (itemInfo.exists && itemInfo.isDirectory) {
+          directories.push(`${fullPath}/`);
+        }
+      }
+
+      return directories;
     } catch (error) {
       throw new Error(`Failed to list directories in ${directory}: ${error}`);
     }
   }
 
-  /**
-   * Check if a file exists
-   */
   async fileExists(path: string): Promise<boolean> {
     try {
-      const exists = await RNFS.exists(path);
-      if (!exists) return false;
-
-      const stat = await RNFS.stat(path);
-      return stat.isFile();
+      if (Platform.OS === 'android' && this.isExternalStoragePath(path)) {
+        return await StoragePermission.fileExists(path);
+      }
+      const info = await FileSystem.getInfoAsync(path);
+      return info.exists && !info.isDirectory;
     } catch (error) {
       return false;
     }
   }
 
-  /**
-   * Check if a directory exists
-   */
   async directoryExists(path: string): Promise<boolean> {
     try {
-      const exists = await RNFS.exists(path);
-      if (!exists) return false;
-
-      const stat = await RNFS.stat(path);
-      return stat.isDirectory();
+      if (Platform.OS === 'android' && this.isExternalStoragePath(path)) {
+        return await StoragePermission.directoryExists(path);
+      }
+      const info = await FileSystem.getInfoAsync(path);
+      return info.exists && info.isDirectory === true;
     } catch (error) {
       return false;
     }
   }
 
-  /**
-   * Check if a directory is writable
-   * Attempts to create a test file to verify write permissions
-   */
   async isDirectoryWritable(path: string): Promise<boolean> {
     try {
-      // Ensure directory exists first
       await this.ensureDirectoryExists(path);
 
-      // Try to write a test file
       const testFileName = `.write-test-${Date.now()}`;
-      const testFilePath = `${path}${testFileName}`;
-      await RNFS.writeFile(testFilePath, 'test', 'utf8');
+      const normalizedPath = path.endsWith('/') ? path : `${path}/`;
+      const testFilePath = `${normalizedPath}${testFileName}`;
+      await FileSystem.writeAsStringAsync(testFilePath, 'test');
 
-      // Clean up test file
-      const exists = await RNFS.exists(testFilePath);
-      if (exists) {
-        await RNFS.unlink(testFilePath);
+      const info = await FileSystem.getInfoAsync(testFilePath);
+      if (info.exists) {
+        await FileSystem.deleteAsync(testFilePath, { idempotent: true });
       }
 
       return true;
@@ -336,14 +420,10 @@ export class FileSystemManager {
     }
   }
 
-  /**
-   * List all boards in a given directory
-   * A board is identified by the presence of a kanban.md file
-   */
   async listBoards(boardsDirectory: string): Promise<string[]> {
     try {
-      const exists = await RNFS.exists(boardsDirectory);
-      if (!exists) {
+      const info = await FileSystem.getInfoAsync(boardsDirectory);
+      if (!info.exists) {
         return [];
       }
 
@@ -352,9 +432,8 @@ export class FileSystemManager {
 
       for (const subdirPath of subdirs) {
         const kanbanFilePath = `${subdirPath}kanban.md`;
-        const kanbanExists = await RNFS.exists(kanbanFilePath);
-        if (kanbanExists) {
-          // Extract board name from path
+        const kanbanInfo = await FileSystem.getInfoAsync(kanbanFilePath);
+        if (kanbanInfo.exists) {
           const boardName = subdirPath.split('/').filter(p => p).pop() || '';
           boards.push(boardName);
         }
@@ -375,23 +454,24 @@ export class FileSystemManager {
     return boards.length > 0;
   }
 
-  /**
-   * Copy a file from source to destination
-   */
   async copyFile(sourcePath: string, destPath: string): Promise<boolean> {
     try {
-      const exists = await RNFS.exists(sourcePath);
-      if (!exists) {
+      if (Platform.OS === 'android' && this.isExternalStoragePath(sourcePath)) {
+        const destParent = this.getParentDirectory(destPath);
+        await this.ensureDirectoryExists(destParent);
+        return await StoragePermission.copyFile(sourcePath, destPath);
+      }
+
+      const info = await FileSystem.getInfoAsync(sourcePath);
+      if (!info.exists) {
         console.error(`Source file does not exist: ${sourcePath}`);
         return false;
       }
 
-      // Ensure destination parent directory exists
       const destParent = this.getParentDirectory(destPath);
       await this.ensureDirectoryExists(destParent);
 
-      // Copy file
-      await RNFS.copyFile(sourcePath, destPath);
+      await FileSystem.copyAsync({ from: sourcePath, to: destPath });
 
       return true;
     } catch (error) {
@@ -400,12 +480,6 @@ export class FileSystemManager {
     }
   }
 
-  /**
-   * Recursively copy a directory and all its contents
-   * @param sourcePath Source directory path
-   * @param destPath Destination directory path
-   * @param onProgress Optional callback for progress updates (current, total)
-   */
   async copyDirectory(
     sourcePath: string,
     destPath: string,
@@ -415,37 +489,36 @@ export class FileSystemManager {
     let copiedFiles = 0;
 
     try {
-      const exists = await RNFS.exists(sourcePath);
-      if (!exists) {
+      const info = await FileSystem.getInfoAsync(sourcePath);
+      if (!info.exists) {
         errors.push(`Source directory does not exist: ${sourcePath}`);
         return { success: false, copiedFiles: 0, errors };
       }
 
-      // Create destination directory
       await this.ensureDirectoryExists(destPath);
 
-      // Get all items in source directory
-      const items = await RNFS.readDir(sourcePath);
+      const normalizedSrc = sourcePath.endsWith('/') ? sourcePath : `${sourcePath}/`;
+      const normalizedDest = destPath.endsWith('/') ? destPath : `${destPath}/`;
+      const items = await FileSystem.readDirectoryAsync(sourcePath);
       const totalItems = items.length;
 
       for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const itemName = item.name;
-        const destItemPath = `${destPath}${itemName}`;
+        const itemName = items[i];
+        const srcItemPath = `${normalizedSrc}${itemName}`;
+        const destItemPath = `${normalizedDest}${itemName}`;
 
         try {
-          if (item.isFile()) {
-            // Copy file
-            const success = await this.copyFile(item.path, destItemPath);
+          const itemInfo = await FileSystem.getInfoAsync(srcItemPath);
+          if (!itemInfo.isDirectory) {
+            const success = await this.copyFile(srcItemPath, destItemPath);
             if (success) {
               copiedFiles++;
             } else {
-              errors.push(`Failed to copy file: ${item.path}`);
+              errors.push(`Failed to copy file: ${srcItemPath}`);
             }
-          } else if (item.isDirectory()) {
-            // Recursively copy subdirectory
+          } else {
             const subResult = await this.copyDirectory(
-              `${item.path}/`,
+              `${srcItemPath}/`,
               `${destItemPath}/`,
               onProgress
             );
@@ -453,10 +526,9 @@ export class FileSystemManager {
             errors.push(...subResult.errors);
           }
         } catch (error) {
-          errors.push(`Error copying ${item.path}: ${error}`);
+          errors.push(`Error copying ${srcItemPath}: ${error}`);
         }
 
-        // Report progress
         if (onProgress) {
           onProgress(i + 1, totalItems);
         }
@@ -497,11 +569,8 @@ export class FileSystemManager {
     return new RegExp(`^${regexPattern}$`);
   }
 
-  /**
-   * Get file information (size, modification time, etc.)
-   */
-  async getFileInfo(path: string): Promise<any> {
-    return await RNFS.stat(path);
+  async getFileInfo(path: string): Promise<FileSystem.FileInfo> {
+    return await FileSystem.getInfoAsync(path);
   }
 
   /**

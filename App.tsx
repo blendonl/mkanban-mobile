@@ -2,46 +2,74 @@ import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import AppNavigator from './src/ui/navigation/AppNavigator';
 import ErrorBoundary from './src/ui/components/ErrorBoundary';
+import { ProjectProvider } from './src/core/ProjectContext';
 import PermissionScreen from './src/ui/screens/PermissionScreen';
 import { checkStoragePermission } from './src/utils/storagePermissions';
-import { Platform, View, ActivityIndicator, StyleSheet } from 'react-native';
+import { initializeContainer } from './src/core/DependencyContainer';
+import { Platform, View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import theme from './src/ui/theme';
 
+type AppState = 'checking_permission' | 'no_permission' | 'initializing' | 'ready' | 'error';
+
 export default function App() {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [appState, setAppState] = useState<AppState>('checking_permission');
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   useEffect(() => {
     checkPermissions();
   }, []);
 
   const checkPermissions = async () => {
-    // iOS doesn't need external storage permissions
     if (Platform.OS !== 'android') {
-      setHasPermission(true);
+      await initializeApp();
       return;
     }
 
-    // Check if we have storage permission
     const granted = await checkStoragePermission();
-    setHasPermission(granted);
+    if (granted) {
+      await initializeApp();
+    } else {
+      setAppState('no_permission');
+    }
+  };
+
+  const initializeApp = async () => {
+    setAppState('initializing');
+    try {
+      await initializeContainer();
+      setAppState('ready');
+    } catch (error) {
+      console.error('Failed to initialize app:', error);
+      setErrorMessage(String(error));
+      setAppState('error');
+    }
   };
 
   const handlePermissionGranted = async () => {
-    // Re-check permissions after user grants them
     await checkPermissions();
   };
 
-  // Show loading screen while checking permissions
-  if (hasPermission === null) {
+  if (appState === 'checking_permission' || appState === 'initializing') {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.accent.primary} />
+        {appState === 'initializing' && (
+          <Text style={styles.loadingText}>Setting up storage...</Text>
+        )}
       </View>
     );
   }
 
-  // Show permission screen if not granted
-  if (!hasPermission) {
+  if (appState === 'error') {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>Failed to initialize app</Text>
+        <Text style={styles.errorDetail}>{errorMessage}</Text>
+      </View>
+    );
+  }
+
+  if (appState === 'no_permission') {
     return (
       <ErrorBoundary>
         <PermissionScreen onPermissionGranted={handlePermissionGranted} />
@@ -50,11 +78,12 @@ export default function App() {
     );
   }
 
-  // Show main app if permission granted
   return (
     <ErrorBoundary>
-      <AppNavigator />
-      <StatusBar style="light" />
+      <ProjectProvider>
+        <AppNavigator />
+        <StatusBar style="light" />
+      </ProjectProvider>
     </ErrorBoundary>
   );
 }
@@ -65,5 +94,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: theme.background.primary,
+  },
+  loadingText: {
+    marginTop: 16,
+    color: theme.text.secondary,
+    fontSize: 14,
+  },
+  errorText: {
+    color: theme.accent.error,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  errorDetail: {
+    marginTop: 8,
+    color: theme.text.secondary,
+    fontSize: 14,
+    textAlign: 'center',
+    paddingHorizontal: 32,
   },
 });

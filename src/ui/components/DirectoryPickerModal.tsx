@@ -20,6 +20,7 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import theme from '../theme';
 import alertService from '../../services/AlertService';
 import logger from '../../utils/logger';
+import { StoragePermission, getDefaultExternalBoardsPath } from '../../infrastructure/storage/StoragePermission';
 
 interface DirectoryPickerModalProps {
   visible: boolean;
@@ -39,10 +40,45 @@ export default function DirectoryPickerModal({
   const [selectedPath, setSelectedPath] = useState(currentPath);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPicking, setIsPicking] = useState(false);
+  const [externalStoragePath, setExternalStoragePath] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedPath(currentPath);
+    loadExternalStoragePath();
   }, [currentPath, visible]);
+
+  const loadExternalStoragePath = async () => {
+    if (Platform.OS === 'android') {
+      const path = await getDefaultExternalBoardsPath();
+      setExternalStoragePath(path);
+    }
+  };
+
+  const handleSelectExternalStorage = async () => {
+    if (!externalStoragePath) return;
+
+    setIsPicking(true);
+    const isValid = await validatePath(externalStoragePath);
+    setIsPicking(false);
+
+    if (isValid) {
+      setSelectedPath(externalStoragePath);
+    } else {
+      const hasPermission = await StoragePermission.checkPermission();
+      if (!hasPermission) {
+        alertService.showError(
+          'Storage permission is required. Please grant "All files access" in settings.',
+          'Permission Required'
+        );
+        await StoragePermission.requestPermission();
+      } else {
+        alertService.showError(
+          'Could not access external storage. Please try again.',
+          'Access Error'
+        );
+      }
+    }
+  };
 
   const handleBrowseFolders = async () => {
     try {
@@ -216,6 +252,29 @@ export default function DirectoryPickerModal({
             </View>
           </View>
 
+          {/* Quick Options */}
+          {Platform.OS === 'android' && externalStoragePath && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Quick Options</Text>
+              <TouchableOpacity
+                style={styles.quickOptionButton}
+                onPress={handleSelectExternalStorage}
+                disabled={isProcessing || isPicking}
+              >
+                <Text style={styles.quickOptionText}>📱 External Storage</Text>
+                <Text style={styles.quickOptionPath}>{externalStoragePath}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickOptionButton}
+                onPress={() => setSelectedPath(defaultPath)}
+                disabled={isProcessing || isPicking}
+              >
+                <Text style={styles.quickOptionText}>📦 App Internal Storage</Text>
+                <Text style={styles.quickOptionPath}>{defaultPath}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Browse Button */}
           <View style={styles.section}>
             <TouchableOpacity
@@ -227,12 +286,12 @@ export default function DirectoryPickerModal({
                 <ActivityIndicator color={theme.button.primary.text} />
               ) : (
                 <Text style={styles.browseButtonText}>
-                  📁 Browse Folders
+                  📁 Browse Other Folders
                 </Text>
               )}
             </TouchableOpacity>
             <Text style={styles.helperText}>
-              Tap to open the system folder picker and choose a directory
+              Use system folder picker for cloud storage or custom locations
             </Text>
           </View>
 
@@ -315,8 +374,27 @@ const styles = StyleSheet.create({
     color: theme.text.primary,
     fontFamily: 'monospace',
   },
+  quickOptionButton: {
+    backgroundColor: theme.card.background,
+    borderRadius: theme.radius.input,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.card.border,
+    marginBottom: theme.spacing.sm,
+  },
+  quickOptionText: {
+    ...theme.typography.textStyles.body,
+    fontWeight: theme.typography.fontWeights.semibold,
+    color: theme.text.primary,
+    marginBottom: 4,
+  },
+  quickOptionPath: {
+    ...theme.typography.textStyles.caption,
+    color: theme.text.secondary,
+    fontFamily: 'monospace',
+  },
   browseButton: {
-    backgroundColor: theme.button.primary.background,
+    backgroundColor: theme.button.secondary.background,
     borderRadius: theme.radius.button,
     padding: theme.spacing.lg,
     alignItems: 'center',
@@ -324,9 +402,9 @@ const styles = StyleSheet.create({
     minHeight: theme.ui.FAB_SIZE,
   },
   browseButtonText: {
-    ...theme.typography.textStyles.h3,
+    ...theme.typography.textStyles.body,
     fontWeight: theme.typography.fontWeights.semibold,
-    color: theme.button.primary.text,
+    color: theme.text.primary,
   },
   helperText: {
     ...theme.typography.textStyles.bodySmall,

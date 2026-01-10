@@ -16,11 +16,12 @@ import {
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { FileSystemManager } from '../../infrastructure/storage/FileSystemManager';
 import { StorageConfig } from '../../core/StorageConfig';
 import { BoardService } from '../../services/BoardService';
-import { getContainer } from '../../core/DependencyContainer';
+import { getContainer, getCalendarSyncService } from '../../core/DependencyContainer';
 import { Directory } from 'expo-file-system';
 import DirectoryPickerModal from '../components/DirectoryPickerModal';
 import Toast from '../components/Toast';
@@ -145,8 +146,15 @@ export default function SettingsScreen() {
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [autoSaveInterval, setAutoSaveInterval] = useState(30);
 
+  // Calendar sync state
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarSyncEnabled, setCalendarSyncEnabled] = useState(false);
+  const [lastCalendarSync, setLastCalendarSync] = useState<Date | null>(null);
+  const [calendarSyncing, setCalendarSyncing] = useState(false);
+
   useEffect(() => {
     loadSettings();
+    loadCalendarSettings();
   }, []);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -173,6 +181,125 @@ export default function SettingsScreen() {
       console.error('Failed to load settings:', error);
       showToast('Failed to load settings', 'error');
     }
+  };
+
+  const loadCalendarSettings = async () => {
+    try {
+      const calendarService = getCalendarSyncService();
+      const isConnected = await calendarService.isAuthenticated();
+      const isSyncEnabled = await calendarService.isSyncEnabled();
+      const lastSync = await calendarService.getLastSyncTime();
+
+      setCalendarConnected(isConnected);
+      setCalendarSyncEnabled(isSyncEnabled);
+      setLastCalendarSync(lastSync);
+    } catch (error) {
+      console.error('Failed to load calendar settings:', error);
+    }
+  };
+
+  const handleConnectCalendar = async () => {
+    setCalendarSyncing(true);
+    try {
+      const calendarService = getCalendarSyncService();
+      const success = await calendarService.connect();
+
+      if (success) {
+        setCalendarConnected(true);
+        showToast('Google Calendar connected', 'success');
+        await loadCalendarSettings();
+      } else {
+        showToast('Failed to connect Google Calendar', 'error');
+      }
+    } catch (error) {
+      console.error('Calendar connect error:', error);
+      showToast('Failed to connect Google Calendar', 'error');
+    } finally {
+      setCalendarSyncing(false);
+    }
+  };
+
+  const handleDisconnectCalendar = () => {
+    Alert.alert(
+      'Disconnect Google Calendar',
+      'This will remove calendar sync. Your calendar events will remain in Google Calendar.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const calendarService = getCalendarSyncService();
+              await calendarService.disconnect();
+              setCalendarConnected(false);
+              setCalendarSyncEnabled(false);
+              setLastCalendarSync(null);
+              showToast('Google Calendar disconnected', 'success');
+            } catch (error) {
+              console.error('Calendar disconnect error:', error);
+              showToast('Failed to disconnect', 'error');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSyncCalendar = async () => {
+    setCalendarSyncing(true);
+    try {
+      const calendarService = getCalendarSyncService();
+      const result = await calendarService.sync();
+
+      if (result.success) {
+        showToast(
+          `Synced: ${result.eventsCreated} created, ${result.eventsUpdated} updated`,
+          'success'
+        );
+        await loadCalendarSettings();
+      } else {
+        showToast(result.error || 'Sync failed', 'error');
+      }
+    } catch (error) {
+      console.error('Calendar sync error:', error);
+      showToast('Calendar sync failed', 'error');
+    } finally {
+      setCalendarSyncing(false);
+    }
+  };
+
+  const handleToggleCalendarSync = async (enabled: boolean) => {
+    try {
+      const calendarService = getCalendarSyncService();
+      await calendarService.setSyncEnabled(enabled);
+      setCalendarSyncEnabled(enabled);
+
+      if (enabled) {
+        showToast('Calendar sync enabled', 'success');
+      } else {
+        showToast('Calendar sync disabled', 'info');
+      }
+    } catch (error) {
+      console.error('Toggle sync error:', error);
+      showToast('Failed to update setting', 'error');
+    }
+  };
+
+  const formatLastSync = (date: Date | null): string => {
+    if (!date) return 'Never';
+
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+
+    return date.toLocaleDateString();
   };
 
   const calculateStorageInfo = async (
@@ -286,9 +413,6 @@ export default function SettingsScreen() {
       // Update configuration
       await storageConfig.setBoardsDirectory(newPath);
 
-      // Update FileSystemManager
-      fsManager.setBoardsDirectory(newPath);
-
       // Reload board list
       await boardService.loadBoards();
 
@@ -328,10 +452,6 @@ export default function SettingsScreen() {
 
               // Reset to default
               await storageConfig.resetToDefault();
-
-              // Update FileSystemManager
-              const defaultPath = storageConfig.getDefaultBoardsDirectory();
-              fsManager.setBoardsDirectory(defaultPath);
 
               // Reload boards
               await boardService.loadBoards();
@@ -399,8 +519,9 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Storage Section */}
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        {/* Storage Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Storage</Text>
 
@@ -485,13 +606,98 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Integration Settings (Placeholders for desktop parity) */}
+      {/* Google Calendar Integration */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Integrations</Text>
+        <Text style={styles.sectionTitle}>Google Calendar</Text>
+
+        {!calendarConnected ? (
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={handleConnectCalendar}
+            disabled={calendarSyncing}
+          >
+            <View style={styles.settingContent}>
+              <Text style={styles.settingLabel}>Connect Google Calendar</Text>
+              <Text style={styles.settingValue}>
+                Sync meetings and scheduled tasks with your calendar
+              </Text>
+            </View>
+            {calendarSyncing ? (
+              <ActivityIndicator size="small" color={theme.accent.primary} />
+            ) : (
+              <Text style={styles.chevron}>›</Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <>
+            <View style={styles.settingItem}>
+              <View style={styles.settingContent}>
+                <Text style={styles.settingLabel}>Status</Text>
+                <Text style={[styles.settingValue, styles.connectedText]}>
+                  Connected
+                </Text>
+              </View>
+              <Text style={styles.connectedBadge}>✓</Text>
+            </View>
+
+            <View style={styles.settingItem}>
+              <View style={styles.settingContent}>
+                <Text style={styles.settingLabel}>Auto-Sync</Text>
+                <Text style={styles.settingValue}>
+                  Automatically sync calendar events
+                </Text>
+              </View>
+              <Switch
+                value={calendarSyncEnabled}
+                onValueChange={handleToggleCalendarSync}
+                trackColor={{ false: theme.background.elevated, true: theme.accent.primary }}
+                thumbColor={calendarSyncEnabled ? theme.background.primary : theme.text.tertiary}
+              />
+            </View>
+
+            <View style={styles.settingItem}>
+              <View style={styles.settingContent}>
+                <Text style={styles.settingLabel}>Last Synced</Text>
+                <Text style={styles.settingValue}>
+                  {formatLastSync(lastCalendarSync)}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={handleSyncCalendar}
+              disabled={calendarSyncing}
+            >
+              <Text style={styles.settingLabel}>Sync Now</Text>
+              {calendarSyncing ? (
+                <ActivityIndicator size="small" color={theme.accent.primary} />
+              ) : (
+                <Text style={styles.chevron}>›</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={handleDisconnectCalendar}
+              disabled={calendarSyncing}
+            >
+              <Text style={[styles.settingLabel, styles.dangerText]}>
+                Disconnect
+              </Text>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+
+      {/* Other Integrations */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Other Integrations</Text>
 
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
-            💡 Git and JIRA integrations are available on MKanban Desktop
+            Git and JIRA integrations are available on MKanban Desktop
           </Text>
         </View>
 
@@ -596,13 +802,15 @@ export default function SettingsScreen() {
         progress={migrationProgress}
       />
 
+      </ScrollView>
+
       <Toast
         visible={toastVisible}
         message={toastMessage}
         type={toastType}
         onHide={() => setToastVisible(false)}
       />
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -610,6 +818,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.background.primary,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100,
   },
   section: {
     marginTop: 20,
@@ -668,6 +882,15 @@ const styles = StyleSheet.create({
   },
   dangerText: {
     color: theme.accent.error,
+  },
+  connectedText: {
+    color: theme.accent.success,
+    fontWeight: '600',
+  },
+  connectedBadge: {
+    color: theme.accent.success,
+    fontSize: 18,
+    fontWeight: '600',
   },
   infoBox: {
     backgroundColor: theme.background.secondary,
