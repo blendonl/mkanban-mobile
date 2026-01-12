@@ -44,13 +44,18 @@ export type AgendaStackParamList = {
     taskId?: string;
     date?: string;
   };
-  TaskSchedule: { taskId: string; boardId: string };
+  TaskSchedule: { taskId: string; boardId: string; taskData?: Record<string, any> };
 };
 
 export type NotesStackParamList = {
-  NotesList: { projectId?: string };
+  NotesList: { projectId?: string; boardId?: string; tagFilter?: string };
   NoteDetail: { noteId: string };
-  NoteEditor: { noteId?: string; projectId?: string; taskId?: string };
+  NoteEditor: {
+    noteId?: string;
+    projectIds?: string[];
+    boardIds?: string[];
+    taskIds?: string[];
+  };
 };
 
 export type TimeStackParamList = {
@@ -111,7 +116,7 @@ function AgendaStackNavigator() {
       <AgendaStack.Screen
         name="TaskSchedule"
         component={TaskScheduleScreen}
-        options={{ presentation: 'modal' }}
+        options={{ presentation: 'modal', headerShown: true }}
       />
     </AgendaStack.Navigator>
   );

@@ -172,8 +172,16 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
   };
 
   const renderProjectStep = () => (
-    <ScrollView style={styles.stepContainer}>
+    <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>Select Project</Text>
+      <Text style={{ color: 'red', fontSize: 16, marginBottom: 10 }}>
+        DEBUG: Projects count: {projects.length}
+      </Text>
+      {projects.length === 0 && (
+        <Text style={{ color: theme.text.secondary, textAlign: 'center', marginTop: 20 }}>
+          No projects found. Please create a project first.
+        </Text>
+      )}
       {projects.map(project => (
         <TouchableOpacity
           key={project.id}
@@ -188,11 +196,11 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
       ))}
-    </ScrollView>
+    </View>
   );
 
   const renderBoardStep = () => (
-    <ScrollView style={styles.stepContainer}>
+    <View style={styles.stepContainer}>
       <TouchableOpacity style={styles.backButton} onPress={() => setStep('project')}>
         <Text style={styles.backButtonText}>‹ Back to Projects</Text>
       </TouchableOpacity>
@@ -217,7 +225,7 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           </TouchableOpacity>
         ))
       )}
-    </ScrollView>
+    </View>
   );
 
   const renderTaskStep = () => {
@@ -227,7 +235,7 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
     });
 
     return (
-      <ScrollView style={styles.stepContainer}>
+      <View style={styles.stepContainer}>
         <TouchableOpacity style={styles.backButton} onPress={() => setStep('board')}>
           <Text style={styles.backButtonText}>‹ Back to Boards</Text>
         </TouchableOpacity>
@@ -246,12 +254,12 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
             <Text style={styles.arrow}>›</Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </View>
     );
   };
 
   const renderDetailsStep = () => (
-    <ScrollView style={styles.stepContainer}>
+    <View style={styles.stepContainer}>
       <TouchableOpacity style={styles.backButton} onPress={() => setStep('task')}>
         <Text style={styles.backButtonText}>‹ Back to Tasks</Text>
       </TouchableOpacity>
@@ -346,7 +354,7 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
       <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
         <Text style={styles.submitButtonText}>Create Agenda Item</Text>
       </TouchableOpacity>
-    </ScrollView>
+    </View>
   );
 
   return (
@@ -354,7 +362,7 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
       visible={visible}
       onClose={onClose}
       title="Schedule Task"
-      scrollable={false}
+      scrollable={true}
     >
       {step === 'project' && renderProjectStep()}
       {step === 'board' && renderBoardStep()}

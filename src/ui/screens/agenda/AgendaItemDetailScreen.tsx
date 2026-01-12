@@ -154,9 +154,12 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
 
   const handleNavigateToTask = () => {
     if (scheduledItem?.task && !scheduledItem.isOrphaned) {
-      navigation.navigate('Board' as any, {
-        boardId: scheduledItem.boardId,
-        taskId: scheduledItem.task.id,
+      navigation.getParent()?.navigate('BoardsTab', {
+        screen: 'Board',
+        params: {
+          boardId: scheduledItem.boardId,
+          taskId: scheduledItem.task.id,
+        },
       });
     }
   };

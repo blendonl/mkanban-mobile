@@ -16,11 +16,16 @@ import { TaskService } from "../services/TaskService";
 import { ProjectService } from "../services/ProjectService";
 import { AgendaService } from "../services/AgendaService";
 import { NoteService } from "../services/NoteService";
+import { CachedNoteService } from "../services/CachedNoteService";
+import { CachedAgendaService } from "../services/CachedAgendaService";
+import { CachedBoardService } from "../services/CachedBoardService";
+import { CachedProjectService } from "../services/CachedProjectService";
 import { MarkdownNoteRepository } from "../infrastructure/storage/MarkdownNoteRepository";
 import { MarkdownAgendaRepository } from "../infrastructure/storage/MarkdownAgendaRepository";
 import { TimeTrackingService } from "../services/TimeTrackingService";
 import { YamlTimeLogRepository } from "../infrastructure/storage/YamlTimeLogRepository";
 import { FileWatcher } from "../infrastructure/daemon/FileWatcher";
+import { FileWatcherDaemon } from "../infrastructure/daemon/FileWatcherDaemon";
 import { StorageConfig } from "./StorageConfig";
 import { ActionsConfig, getActionsConfig } from "./ActionsConfig";
 import { YamlActionRepository } from "../infrastructure/repositories/YamlActionRepository";
@@ -31,6 +36,7 @@ import { ActionDaemon } from "../infrastructure/daemon/ActionDaemon";
 import { MissedActionsManager } from "../services/MissedActionsManager";
 import { GoogleCalendarRepository } from "../infrastructure/calendar/GoogleCalendarRepository";
 import { CalendarSyncService } from "../services/CalendarSyncService";
+import { registerBackgroundFileWatcherTask } from "../infrastructure/daemon/BackgroundFileWatcherTask";
 
 type Factory<T> = () => T;
 
@@ -78,11 +84,13 @@ export class DependencyContainer {
 
     this.factories.set(
       BoardService,
-      () =>
-        new BoardService(
+      () => {
+        const baseService = new BoardService(
           this.get(MarkdownBoardRepository),
           this.get(ValidationService),
-        ),
+        );
+        return new CachedBoardService(baseService);
+      },
     );
 
     this.factories.set(
@@ -103,11 +111,13 @@ export class DependencyContainer {
     // Project Service
     this.factories.set(
       ProjectService,
-      () =>
-        new ProjectService(
+      () => {
+        const baseService = new ProjectService(
           this.get(MarkdownProjectRepository),
           this.get(ValidationService),
-        ),
+        );
+        return new CachedProjectService(baseService);
+      },
     );
 
     // Agenda Repository
@@ -119,12 +129,14 @@ export class DependencyContainer {
     // Agenda Service
     this.factories.set(
       AgendaService,
-      () =>
-        new AgendaService(
+      () => {
+        const baseService = new AgendaService(
           this.get(BoardService),
           this.get(ProjectService),
           this.get(MarkdownAgendaRepository),
-        ),
+        );
+        return new CachedAgendaService(baseService);
+      },
     );
 
     // Note Repository
@@ -136,11 +148,13 @@ export class DependencyContainer {
     // Note Service
     this.factories.set(
       NoteService,
-      () =>
-        new NoteService(
+      () => {
+        const baseService = new NoteService(
           this.get(MarkdownNoteRepository),
           this.get(ValidationService),
-        ),
+        );
+        return new CachedNoteService(baseService);
+      },
     );
 
     // Time Log Repository
@@ -159,6 +173,12 @@ export class DependencyContainer {
     this.factories.set(
       FileWatcher,
       () => new FileWatcher(this.get(FileSystemManager)),
+    );
+
+    // File watcher daemon factory with FileSystemManager dependency
+    this.factories.set(
+      FileWatcherDaemon,
+      () => new FileWatcherDaemon(this.get(FileSystemManager)),
     );
 
     // Actions Config (singleton)
@@ -338,6 +358,13 @@ export async function initializeContainer(): Promise<void> {
   if (boardsDir !== defaultDir) {
     console.log("Custom boards directory loaded:", boardsDir);
   }
+
+  const fileWatcherDaemon = container.get<FileWatcherDaemon>(FileWatcherDaemon);
+  await fileWatcherDaemon.start();
+
+  await registerBackgroundFileWatcherTask(async () => {
+    await fileWatcherDaemon.forceCheck();
+  });
 
   _initialized = true;
 }
@@ -540,4 +567,11 @@ export function getCalendarRepository(): GoogleCalendarRepository {
  */
 export function getCalendarSyncService(): CalendarSyncService {
   return getContainer().get(CalendarSyncService);
+}
+
+/**
+ * Get the file watcher daemon
+ */
+export function getFileWatcherDaemon(): FileWatcherDaemon {
+  return getContainer().get(FileWatcherDaemon);
 }

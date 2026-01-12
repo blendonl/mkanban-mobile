@@ -117,7 +117,7 @@ export class Column {
       name: this.name,
       position: this.position,
       limit: this.limit,
-      created_at: this.created_at,
+      created_at: this.created_at instanceof Date ? this.created_at.toISOString() : this.created_at,
     };
   }
 

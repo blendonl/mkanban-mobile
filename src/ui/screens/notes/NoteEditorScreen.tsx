@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -14,9 +13,15 @@ import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
-import { getNoteService } from '../../../core/DependencyContainer';
+import { uiConstants } from '../../theme/uiConstants';
+import { useDebounce } from '../../hooks/useDebounce';
+import { getNoteService, getProjectService, getBoardService, getTaskService } from '../../../core/DependencyContainer';
 import { Note, NoteType } from '../../../domain/entities/Note';
 import { NotesStackParamList } from '../../navigation/TabNavigator';
+import AutoSaveIndicator, { SaveStatus } from '../../components/AutoSaveIndicator';
+import EntityChip from '../../components/EntityChip';
+import EntityPicker from '../../components/EntityPicker';
+import { ProjectId, BoardId, TaskId } from '../../../core/types';
 
 type NoteEditorRouteProp = RouteProp<NotesStackParamList, 'NoteEditor'>;
 type NoteEditorNavProp = StackNavigationProp<NotesStackParamList, 'NoteEditor'>;
@@ -30,16 +35,36 @@ const NOTE_TYPES: { value: NoteType; label: string; icon: string }[] = [
 export default function NoteEditorScreen() {
   const route = useRoute<NoteEditorRouteProp>();
   const navigation = useNavigation<NoteEditorNavProp>();
-  const { noteId, projectId, taskId } = route.params || {};
+  const { noteId, projectIds: initialProjectIds, boardIds: initialBoardIds, taskIds: initialTaskIds } = route.params || {};
 
   const [note, setNote] = useState<Note | null>(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [noteType, setNoteType] = useState<NoteType>('general');
-  const [tagsInput, setTagsInput] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [selectedProjects, setSelectedProjects] = useState<ProjectId[]>(initialProjectIds || []);
+  const [selectedBoards, setSelectedBoards] = useState<BoardId[]>(initialBoardIds || []);
+  const [selectedTasks, setSelectedTasks] = useState<TaskId[]>(initialTaskIds || []);
+  const [tagInput, setTagInput] = useState('');
   const [loading, setLoading] = useState(!!noteId);
-  const [saving, setSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [showEntityPicker, setShowEntityPicker] = useState(false);
+
+  const [entityNames, setEntityNames] = useState<{
+    projects: Map<string, string>;
+    boards: Map<string, string>;
+    tasks: Map<string, string>;
+  }>({
+    projects: new Map(),
+    boards: new Map(),
+    tasks: new Map(),
+  });
+
+  const isInitialMount = useRef(true);
+
+  const debouncedTitle = useDebounce(title, uiConstants.AUTO_SAVE_DEBOUNCE_TIME);
+  const debouncedContent = useDebounce(content, uiConstants.AUTO_SAVE_DEBOUNCE_TIME);
+  const debouncedTags = useDebounce(tags, uiConstants.AUTO_SAVE_DEBOUNCE_TIME);
 
   const loadNote = useCallback(async () => {
     if (!noteId) {
@@ -55,32 +80,77 @@ export default function NoteEditorScreen() {
         setTitle(loadedNote.title);
         setContent(loadedNote.content);
         setNoteType(loadedNote.note_type);
-        setTagsInput(loadedNote.tags.join(', '));
+        setTags(loadedNote.tags);
+        setSelectedProjects(loadedNote.project_ids);
+        setSelectedBoards(loadedNote.board_ids);
+        setSelectedTasks(loadedNote.task_ids);
       }
     } catch (error) {
       console.error('Failed to load note:', error);
-      Alert.alert('Error', 'Failed to load note');
     } finally {
       setLoading(false);
     }
   }, [noteId]);
+
+  const loadEntityNames = useCallback(async () => {
+    try {
+      const projectService = getProjectService();
+      const boardService = getBoardService();
+      const taskService = getTaskService();
+
+      const newEntityNames = {
+        projects: new Map<string, string>(),
+        boards: new Map<string, string>(),
+        tasks: new Map<string, string>(),
+      };
+
+      for (const projectId of selectedProjects) {
+        try {
+          const project = await projectService.getProject(projectId);
+          if (project) newEntityNames.projects.set(projectId, project.name);
+        } catch (e) {}
+      }
+
+      for (const boardId of selectedBoards) {
+        try {
+          const board = await boardService.getBoard(boardId);
+          if (board) newEntityNames.boards.set(boardId, board.name);
+        } catch (e) {}
+      }
+
+      for (const taskId of selectedTasks) {
+        try {
+          const task = await taskService.getTask(taskId);
+          if (task) newEntityNames.tasks.set(taskId, task.title);
+        } catch (e) {}
+      }
+
+      setEntityNames(newEntityNames);
+    } catch (error) {
+      console.error('Failed to load entity names:', error);
+    }
+  }, [selectedProjects, selectedBoards, selectedTasks]);
 
   useEffect(() => {
     loadNote();
   }, [loadNote]);
 
   useEffect(() => {
-    if (note) {
-      const changed =
-        title !== note.title ||
-        content !== note.content ||
-        noteType !== note.note_type ||
-        tagsInput !== note.tags.join(', ');
-      setHasChanges(changed);
-    } else {
-      setHasChanges(title.length > 0 || content.length > 0);
+    loadEntityNames();
+  }, [loadEntityNames]);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
     }
-  }, [note, title, content, noteType, tagsInput]);
+
+    if (!debouncedTitle.trim()) {
+      return;
+    }
+
+    saveNote();
+  }, [debouncedTitle, debouncedContent, debouncedTags, selectedProjects, selectedBoards, selectedTasks]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -88,79 +158,47 @@ export default function NoteEditorScreen() {
       headerLeft: () => (
         <TouchableOpacity
           style={styles.headerButton}
-          onPress={handleCancel}
+          onPress={() => navigation.goBack()}
         >
-          <Text style={styles.headerButtonText}>Cancel</Text>
-        </TouchableOpacity>
-      ),
-      headerRight: () => (
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={handleSave}
-          disabled={saving || !title.trim()}
-        >
-          <Text style={[
-            styles.headerButtonText,
-            styles.saveButtonText,
-            (!title.trim() || saving) && styles.disabledText,
-          ]}>
-            {saving ? 'Saving...' : 'Save'}
-          </Text>
+          <Text style={styles.headerButtonText}>Close</Text>
         </TouchableOpacity>
       ),
     });
-  }, [navigation, noteId, title, saving, hasChanges]);
+  }, [navigation, noteId]);
 
-  const handleCancel = () => {
-    if (hasChanges) {
-      Alert.alert(
-        'Discard Changes',
-        'You have unsaved changes. Are you sure you want to discard them?',
-        [
-          { text: 'Keep Editing', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: () => navigation.goBack() },
-        ]
-      );
-    } else {
-      navigation.goBack();
-    }
-  };
+  const saveNote = async () => {
+    if (!title.trim()) return;
 
-  const handleSave = async () => {
-    if (!title.trim()) {
-      Alert.alert('Error', 'Please enter a title for your note');
-      return;
-    }
-
-    setSaving(true);
+    setSaveStatus('saving');
     try {
       const noteService = getNoteService();
-      const tags = tagsInput
-        .split(',')
-        .map(t => t.trim().toLowerCase())
-        .filter(t => t.length > 0);
 
       if (note) {
         await noteService.updateNote(note.id, {
           title: title.trim(),
           content,
           tags,
+          projectIds: selectedProjects,
+          boardIds: selectedBoards,
+          taskIds: selectedTasks,
         });
       } else {
-        await noteService.createNote(title.trim(), content, {
+        const newNote = await noteService.createNote(title.trim(), content, {
           noteType,
-          projectId: projectId || undefined,
-          taskId: taskId || undefined,
+          projectIds: selectedProjects,
+          boardIds: selectedBoards,
+          taskIds: selectedTasks,
           tags,
         });
+        setNote(newNote);
       }
 
-      navigation.goBack();
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
       console.error('Failed to save note:', error);
-      Alert.alert('Error', 'Failed to save note');
-    } finally {
-      setSaving(false);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
 
@@ -168,20 +206,37 @@ export default function NoteEditorScreen() {
     setContent(prev => prev + template);
   };
 
-  const handleInsertHeading = () => {
-    insertTemplate('\n## ');
+  const handleAddTag = () => {
+    if (tagInput.trim() && !tags.includes(tagInput.trim().toLowerCase())) {
+      setTags([...tags, tagInput.trim().toLowerCase()]);
+      setTagInput('');
+    }
   };
 
-  const handleInsertList = () => {
-    insertTemplate('\n- ');
+  const handleRemoveTag = (tag: string) => {
+    setTags(tags.filter(t => t !== tag));
   };
 
-  const handleInsertCheckbox = () => {
-    insertTemplate('\n- [ ] ');
+  const handleRemoveProject = (projectId: string) => {
+    setSelectedProjects(selectedProjects.filter(id => id !== projectId));
   };
 
-  const handleInsertQuote = () => {
-    insertTemplate('\n> ');
+  const handleRemoveBoard = (boardId: string) => {
+    setSelectedBoards(selectedBoards.filter(id => id !== boardId));
+  };
+
+  const handleRemoveTask = (taskId: string) => {
+    setSelectedTasks(selectedTasks.filter(id => id !== taskId));
+  };
+
+  const handleEntitySelectionChange = (
+    projects: ProjectId[],
+    boards: BoardId[],
+    tasks: TaskId[]
+  ) => {
+    setSelectedProjects(projects);
+    setSelectedBoards(boards);
+    setSelectedTasks(tasks);
   };
 
   if (loading) {
@@ -198,6 +253,8 @@ export default function NoteEditorScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={88}
     >
+      <AutoSaveIndicator status={saveStatus} />
+
       <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled">
         {!noteId && (
           <View style={styles.typeSelector}>
@@ -211,6 +268,7 @@ export default function NoteEditorScreen() {
                     noteType === type.value && styles.typeButtonActive,
                   ]}
                   onPress={() => setNoteType(type.value)}
+                  activeOpacity={0.8}
                 >
                   <Text style={styles.typeIcon}>{type.icon}</Text>
                   <Text style={[
@@ -228,7 +286,7 @@ export default function NoteEditorScreen() {
         <View style={styles.titleContainer}>
           <TextInput
             style={styles.titleInput}
-            placeholder="Note title"
+            placeholder="Untitled note"
             placeholderTextColor={theme.text.muted}
             value={title}
             onChangeText={setTitle}
@@ -236,27 +294,82 @@ export default function NoteEditorScreen() {
           />
         </View>
 
-        <View style={styles.tagsContainer}>
-          <TextInput
-            style={styles.tagsInput}
-            placeholder="Tags (comma separated)"
-            placeholderTextColor={theme.text.muted}
-            value={tagsInput}
-            onChangeText={setTagsInput}
-          />
+        <View style={styles.entitiesSection}>
+          <Text style={styles.sectionLabel}>Connected To</Text>
+          <View style={styles.entityChipsContainer}>
+            {selectedProjects.map(id => (
+              <EntityChip
+                key={id}
+                entityType="project"
+                entityId={id}
+                entityName={entityNames.projects.get(id) || id}
+                onRemove={handleRemoveProject}
+              />
+            ))}
+            {selectedBoards.map(id => (
+              <EntityChip
+                key={id}
+                entityType="board"
+                entityId={id}
+                entityName={entityNames.boards.get(id) || id}
+                onRemove={handleRemoveBoard}
+              />
+            ))}
+            {selectedTasks.map(id => (
+              <EntityChip
+                key={id}
+                entityType="task"
+                entityId={id}
+                entityName={entityNames.tasks.get(id) || id}
+                onRemove={handleRemoveTask}
+              />
+            ))}
+            <TouchableOpacity
+              style={styles.addEntityButton}
+              onPress={() => setShowEntityPicker(true)}
+            >
+              <Text style={styles.addEntityButtonText}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.tagsSection}>
+          <Text style={styles.sectionLabel}>Tags</Text>
+          <View style={styles.tagsContainer}>
+            {tags.map(tag => (
+              <View key={tag} style={styles.tagChip}>
+                <Text style={styles.tagText}>#{tag}</Text>
+                <TouchableOpacity
+                  onPress={() => handleRemoveTag(tag)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.tagRemove}>×</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TextInput
+              style={styles.tagInput}
+              placeholder="Add tags..."
+              placeholderTextColor={theme.text.muted}
+              value={tagInput}
+              onChangeText={setTagInput}
+              onSubmitEditing={handleAddTag}
+              returnKeyType="done"
+            />
+          </View>
         </View>
 
         <View style={styles.toolbar}>
-          <TouchableOpacity style={styles.toolButton} onPress={handleInsertHeading}>
+          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n## ')}>
             <Text style={styles.toolButtonText}>H</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={handleInsertList}>
+          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- ')}>
             <Text style={styles.toolButtonText}>•</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={handleInsertCheckbox}>
+          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- [ ] ')}>
             <Text style={styles.toolButtonText}>☐</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={handleInsertQuote}>
+          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n> ')}>
             <Text style={styles.toolButtonText}>"</Text>
           </TouchableOpacity>
         </View>
@@ -264,7 +377,7 @@ export default function NoteEditorScreen() {
         <View style={styles.editorContainer}>
           <TextInput
             style={styles.contentInput}
-            placeholder="Start writing..."
+            placeholder="Start writing your note..."
             placeholderTextColor={theme.text.muted}
             value={content}
             onChangeText={setContent}
@@ -276,6 +389,15 @@ export default function NoteEditorScreen() {
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      <EntityPicker
+        visible={showEntityPicker}
+        onClose={() => setShowEntityPicker(false)}
+        selectedProjects={selectedProjects}
+        selectedBoards={selectedBoards}
+        selectedTasks={selectedTasks}
+        onSelectionChange={handleEntitySelectionChange}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -297,20 +419,12 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
   },
   headerButtonText: {
-    color: theme.text.secondary,
-    fontSize: 16,
-  },
-  saveButtonText: {
     color: theme.accent.primary,
-    fontWeight: '600',
-  },
-  disabledText: {
-    opacity: 0.5,
+    fontSize: 16,
+    fontWeight: '500',
   },
   typeSelector: {
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border.primary,
+    padding: spacing.lg,
   },
   sectionLabel: {
     color: theme.text.secondary,
@@ -318,20 +432,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   typeButtons: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   typeButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.card.background,
-    borderRadius: 8,
-    padding: spacing.sm,
+    backgroundColor: theme.glass.tint.neutral,
+    borderRadius: 12,
+    padding: spacing.md,
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -340,53 +454,107 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accent.primary + '20',
   },
   typeIcon: {
-    fontSize: 16,
-    marginRight: spacing.xs,
+    fontSize: 20,
+    marginRight: spacing.sm,
   },
   typeLabel: {
     color: theme.text.primary,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '500',
   },
   typeLabelActive: {
     color: theme.accent.primary,
+    fontWeight: '600',
   },
   titleContainer: {
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
   titleInput: {
     color: theme.text.primary,
-    fontSize: 22,
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  entitiesSection: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  entityChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  addEntityButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    backgroundColor: theme.glass.tint.blue,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.accent.primary,
+    marginRight: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  addEntityButtonText: {
+    color: theme.accent.primary,
+    fontSize: 13,
     fontWeight: '600',
   },
-  tagsContainer: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border.primary,
+  tagsSection: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
-  tagsInput: {
-    color: theme.text.secondary,
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    backgroundColor: theme.input.background,
+    borderRadius: 12,
+    padding: spacing.sm,
+    minHeight: 44,
+  },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.accent.primary + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  tagText: {
+    color: theme.accent.primary,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  tagRemove: {
+    color: theme.accent.primary,
+    fontSize: 18,
+    fontWeight: '300',
+    marginLeft: spacing.xs,
+  },
+  tagInput: {
+    flex: 1,
+    color: theme.text.primary,
     fontSize: 14,
+    minWidth: 100,
+    paddingVertical: 4,
   },
   toolbar: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border.primary,
-    backgroundColor: theme.background.secondary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
   },
   toolButton: {
-    width: 40,
-    height: 36,
-    borderRadius: 6,
-    backgroundColor: theme.card.background,
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: theme.glass.tint.neutral,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.glass.border,
   },
   toolButtonText: {
     color: theme.text.primary,
@@ -394,16 +562,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   editorContainer: {
-    padding: spacing.md,
-    minHeight: 300,
+    paddingHorizontal: spacing.lg,
+    minHeight: 400,
   },
   contentInput: {
     color: theme.text.primary,
-    fontSize: 16,
-    lineHeight: 24,
-    minHeight: 300,
+    fontSize: 17,
+    lineHeight: 28,
+    minHeight: 400,
   },
   bottomPadding: {
-    height: spacing.xxxl,
+    height: spacing.xxxl * 2,
   },
 });

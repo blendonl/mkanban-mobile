@@ -103,8 +103,8 @@ export class Project {
       description: this.description,
       color: this.color,
       status: this.status,
-      created_at: this.created_at,
-      updated_at: this.updated_at,
+      created_at: this.created_at instanceof Date ? this.created_at.toISOString() : this.created_at,
+      updated_at: this.updated_at instanceof Date ? this.updated_at.toISOString() : this.updated_at,
     };
   }
 

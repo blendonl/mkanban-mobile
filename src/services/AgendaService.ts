@@ -17,6 +17,13 @@ export interface ScheduledAgendaItem {
   isOrphaned: boolean;
 }
 
+export interface ScheduledTask {
+  task: Task;
+  boardId: string;
+  boardName: string;
+  projectName: string;
+}
+
 export interface DayAgenda {
   date: string;
   items: ScheduledAgendaItem[];
@@ -24,6 +31,7 @@ export interface DayAgenda {
   meetings: ScheduledAgendaItem[];
   milestones: ScheduledAgendaItem[];
   orphanedItems: ScheduledAgendaItem[];
+  tasks: ScheduledAgendaItem[];
 }
 
 export class AgendaService {
@@ -64,18 +72,29 @@ export class AgendaService {
   }
 
   async getAgendaForDate(date: string): Promise<DayAgenda> {
+    console.log(`[AgendaService] Loading agenda for date: ${date}`);
     const items = await this.agendaRepository.loadAgendaItemsForDate(date);
+    console.log(`[AgendaService] Found ${items.length} raw agenda items for ${date}`);
+
     const scheduledItems = await Promise.all(
       items.map(item => this.resolveAgendaItem(item))
     );
+    console.log(`[AgendaService] Resolved ${scheduledItems.length} scheduled items`);
+
+    const regularTasks = scheduledItems.filter(si => si.agendaItem.task_type === 'regular');
+    const meetings = scheduledItems.filter(si => si.agendaItem.task_type === 'meeting');
+    const milestones = scheduledItems.filter(si => si.agendaItem.task_type === 'milestone');
+
+    console.log(`[AgendaService] Categorized: ${regularTasks.length} regular, ${meetings.length} meetings, ${milestones.length} milestones`);
 
     return {
       date,
       items: scheduledItems,
-      regularTasks: scheduledItems.filter(si => si.agendaItem.task_type === 'regular'),
-      meetings: scheduledItems.filter(si => si.agendaItem.task_type === 'meeting'),
-      milestones: scheduledItems.filter(si => si.agendaItem.task_type === 'milestone'),
+      regularTasks,
+      meetings,
+      milestones,
       orphanedItems: scheduledItems.filter(si => si.isOrphaned),
+      tasks: regularTasks,
     };
   }
 
@@ -95,10 +114,12 @@ export class AgendaService {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
+    const current = new Date(start);
+    while (current <= end) {
+      const dateStr = current.toISOString().split('T')[0];
       const dayAgenda = await this.getAgendaForDate(dateStr);
       result.set(dateStr, dayAgenda);
+      current.setDate(current.getDate() + 1);
     }
 
     return result;
@@ -259,5 +280,157 @@ export class AgendaService {
     d.setDate(diff);
     d.setHours(0, 0, 0, 0);
     return d;
+  }
+
+  async scheduleTask(
+    boardId: BoardId,
+    taskId: TaskId,
+    date: string,
+    time?: string,
+    durationMinutes?: number
+  ): Promise<AgendaItem> {
+    const board = await this.boardService.getBoardById(boardId);
+    if (!board) {
+      throw new Error('Board not found');
+    }
+
+    const { task, column } = this.findTaskInBoard(board, taskId);
+    if (!task) {
+      throw new Error('Task not found in board');
+    }
+
+    task.schedule(date, time, durationMinutes);
+
+    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+      task.project_id!,
+      boardId,
+      taskId
+    );
+
+    let agendaItem: AgendaItem;
+    if (existingAgendaItem) {
+      existingAgendaItem.reschedule(date, time);
+      if (durationMinutes !== undefined) {
+        existingAgendaItem.updateDuration(durationMinutes);
+      }
+      agendaItem = existingAgendaItem;
+    } else {
+      agendaItem = new AgendaItem({
+        project_id: task.project_id!,
+        board_id: boardId,
+        task_id: taskId,
+        scheduled_date: date,
+        scheduled_time: time,
+        duration_minutes: durationMinutes,
+        task_type: task.task_type,
+        meeting_data: task.meeting_data,
+      });
+    }
+
+    await Promise.all([
+      this.boardService.updateTask(boardId, task),
+      this.agendaRepository.saveAgendaItem(agendaItem),
+    ]);
+
+    return agendaItem;
+  }
+
+  async setTaskType(
+    boardId: BoardId,
+    taskId: TaskId,
+    taskType: TaskType
+  ): Promise<void> {
+    const board = await this.boardService.getBoardById(boardId);
+    if (!board) {
+      throw new Error('Board not found');
+    }
+
+    const { task } = this.findTaskInBoard(board, taskId);
+    if (!task) {
+      throw new Error('Task not found in board');
+    }
+
+    task.task_type = taskType;
+
+    if (taskType !== 'meeting' && task.meeting_data) {
+      task.meeting_data = null;
+    }
+
+    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+      task.project_id!,
+      boardId,
+      taskId
+    );
+
+    if (existingAgendaItem) {
+      existingAgendaItem.task_type = taskType;
+      if (taskType !== 'meeting') {
+        existingAgendaItem.meeting_data = null;
+      }
+      await this.agendaRepository.saveAgendaItem(existingAgendaItem);
+    }
+
+    await this.boardService.updateTask(boardId, task);
+  }
+
+  async unscheduleTask(boardId: BoardId, taskId: TaskId): Promise<void> {
+    const board = await this.boardService.getBoardById(boardId);
+    if (!board) {
+      throw new Error('Board not found');
+    }
+
+    const { task } = this.findTaskInBoard(board, taskId);
+    if (!task) {
+      throw new Error('Task not found in board');
+    }
+
+    task.unschedule();
+
+    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+      task.project_id!,
+      boardId,
+      taskId
+    );
+
+    await this.boardService.updateTask(boardId, task);
+
+    if (existingAgendaItem) {
+      await this.agendaRepository.deleteAgendaItem(existingAgendaItem);
+    }
+  }
+
+  async getTasksForDate(date: string): Promise<DayAgenda> {
+    return this.getAgendaForDate(date);
+  }
+
+  async updateMeetingData(
+    boardId: BoardId,
+    taskId: TaskId,
+    meetingData: MeetingData
+  ): Promise<void> {
+    const board = await this.boardService.getBoardById(boardId);
+    if (!board) {
+      throw new Error('Board not found');
+    }
+
+    const { task } = this.findTaskInBoard(board, taskId);
+    if (!task) {
+      throw new Error('Task not found in board');
+    }
+
+    task.meeting_data = meetingData;
+
+    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+      task.project_id!,
+      boardId,
+      taskId
+    );
+
+    if (existingAgendaItem) {
+      existingAgendaItem.meeting_data = meetingData;
+      await this.agendaRepository.saveAgendaItem(existingAgendaItem);
+    }
+
+    await this.boardService.updateTask(boardId, task);
   }
 }

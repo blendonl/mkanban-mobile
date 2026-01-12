@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { ScheduledAgendaItem } from '../../services/AgendaService';
 import { OrphanedItemBadge } from './OrphanedItemBadge';
+import { TimeBlockBar } from './TimeBlockBar';
 import { theme } from '../theme/colors';
 
 interface AgendaItemCardProps {
@@ -28,6 +29,17 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
     }
   };
 
+  const getTaskTypeColor = () => {
+    switch (agendaItem.task_type) {
+      case 'meeting':
+        return '#10B981';
+      case 'milestone':
+        return '#8B5CF6';
+      default:
+        return '#3B82F6';
+    }
+  };
+
   const formatTime = (time: string | null) => {
     if (!time) return null;
     const [hours, minutes] = time.split(':');
@@ -46,10 +58,11 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   };
 
   const taskTitle = task?.title || agendaItem.task_id;
+  const typeColor = getTaskTypeColor();
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, { borderLeftColor: typeColor }]}
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={0.7}
@@ -84,17 +97,40 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
       </View>
 
       {agendaItem.duration_minutes && (
-        <View style={styles.durationContainer}>
-          <Text style={styles.durationText}>
-            ⏱️ {formatDuration(agendaItem.duration_minutes)}
-          </Text>
-        </View>
+        <>
+          <View style={styles.durationContainer}>
+            <Text style={styles.durationText}>
+              ⏱️ {formatDuration(agendaItem.duration_minutes)}
+            </Text>
+          </View>
+          <TimeBlockBar
+            taskType={agendaItem.task_type}
+            durationMinutes={agendaItem.duration_minutes}
+            maxDurationMinutes={120}
+          />
+        </>
       )}
 
       {agendaItem.meeting_data?.location && (
         <View style={styles.locationContainer}>
           <Text style={styles.locationText} numberOfLines={1}>
             📍 {agendaItem.meeting_data.location}
+          </Text>
+        </View>
+      )}
+
+      {agendaItem.meeting_data?.attendees && agendaItem.meeting_data.attendees.length > 0 && (
+        <View style={styles.attendeesContainer}>
+          <Text style={styles.attendeesText}>
+            👥 {agendaItem.meeting_data.attendees.length} {agendaItem.meeting_data.attendees.length === 1 ? 'person' : 'people'}
+          </Text>
+        </View>
+      )}
+
+      {task?.description && (
+        <View style={styles.descriptionContainer}>
+          <Text style={styles.descriptionText} numberOfLines={1}>
+            {task.description}
           </Text>
         </View>
       )}
@@ -110,6 +146,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.card.border,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   header: {
     flexDirection: 'row',
@@ -178,5 +220,23 @@ const styles = StyleSheet.create({
   locationText: {
     fontSize: 12,
     color: theme.text.secondary,
+  },
+  attendeesContainer: {
+    marginTop: 4,
+  },
+  attendeesText: {
+    fontSize: 12,
+    color: theme.text.secondary,
+  },
+  descriptionContainer: {
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: theme.border.primary,
+  },
+  descriptionText: {
+    fontSize: 12,
+    color: theme.text.tertiary,
+    fontStyle: 'italic',
   },
 });

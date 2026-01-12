@@ -263,9 +263,9 @@ export class Task {
       description: this.description,
       parent_id: this.parent_id,
       project_id: this.project_id,
-      created_at: this.created_at,
-      moved_in_progress_at: this.moved_in_progress_at,
-      moved_in_done_at: this.moved_in_done_at,
+      created_at: this.created_at instanceof Date ? this.created_at.toISOString() : this.created_at,
+      moved_in_progress_at: this.moved_in_progress_at instanceof Date ? this.moved_in_progress_at.toISOString() : this.moved_in_progress_at,
+      moved_in_done_at: this.moved_in_done_at instanceof Date ? this.moved_in_done_at.toISOString() : this.moved_in_done_at,
       worked_on_for: this.worked_on_for,
     };
 

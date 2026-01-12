@@ -30,7 +30,7 @@ const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120];
 export default function TaskScheduleScreen() {
   const route = useRoute<TaskScheduleRouteProp>();
   const navigation = useNavigation<TaskScheduleNavProp>();
-  const { taskId, boardId } = route.params;
+  const { taskId, boardId, taskData } = route.params;
 
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,9 +40,30 @@ export default function TaskScheduleScreen() {
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [selectedType, setSelectedType] = useState<TaskType>('regular');
+  const [meetingLocation, setMeetingLocation] = useState<string>('');
+  const [meetingAttendees, setMeetingAttendees] = useState<string>('');
 
   const loadTask = useCallback(async () => {
     try {
+      console.log('loadTask called - taskData:', taskData ? 'exists' : 'null');
+      console.log('loading state:', loading);
+      if (taskData) {
+        console.log('Using taskData:', taskData.id, taskData.title);
+        const taskInstance = Task.fromDict(taskData);
+        setTask(taskInstance);
+        setSelectedDate(taskInstance.scheduled_date || getTodayString());
+        setSelectedTime(taskInstance.scheduled_time || '');
+        setSelectedDuration(taskInstance.time_block_minutes);
+        setSelectedType(taskInstance.task_type);
+        setMeetingLocation(taskInstance.meeting_data?.location || '');
+        setMeetingAttendees(taskInstance.meeting_data?.attendees?.join(', ') || '');
+        setLoading(false);
+        console.log('Set loading to false');
+        return;
+      }
+
+      console.log('Loading from board...');
+
       const boardService = getBoardService();
       const board = await boardService.getBoardById(boardId);
 
@@ -54,6 +75,8 @@ export default function TaskScheduleScreen() {
           setSelectedTime(foundTask.scheduled_time || '');
           setSelectedDuration(foundTask.time_block_minutes);
           setSelectedType(foundTask.task_type);
+          setMeetingLocation(foundTask.meeting_data?.location || '');
+          setMeetingAttendees(foundTask.meeting_data?.attendees?.join(', ') || '');
           break;
         }
       }
@@ -63,7 +86,7 @@ export default function TaskScheduleScreen() {
     } finally {
       setLoading(false);
     }
-  }, [taskId, boardId]);
+  }, [taskId, boardId, taskData]);
 
   useEffect(() => {
     loadTask();
@@ -92,6 +115,18 @@ export default function TaskScheduleScreen() {
 
       if (selectedType !== task.task_type) {
         await agendaService.setTaskType(boardId, taskId, selectedType);
+      }
+
+      if (selectedType === 'meeting' && (meetingLocation || meetingAttendees)) {
+        const attendeesList = meetingAttendees
+          .split(',')
+          .map(a => a.trim())
+          .filter(a => a.length > 0);
+
+        await agendaService.updateMeetingData(boardId, taskId, {
+          location: meetingLocation || undefined,
+          attendees: attendeesList.length > 0 ? attendeesList : undefined,
+        });
       }
 
       navigation.goBack();
@@ -167,10 +202,14 @@ export default function TaskScheduleScreen() {
     return options;
   };
 
+  console.log('Render - loading:', loading, 'task:', task ? task.id : 'null');
+
   if (loading) {
     return (
       <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading...</Text>
+        <Text style={styles.loadingText}>Loading... (state: {loading ? 'true' : 'false'})</Text>
+        <Text style={styles.loadingText}>TaskData: {taskData ? 'exists' : 'null'}</Text>
+        <Text style={styles.loadingText}>TaskId: {taskId}</Text>
       </View>
     );
   }
@@ -179,6 +218,8 @@ export default function TaskScheduleScreen() {
     return (
       <View style={styles.container}>
         <Text style={styles.loadingText}>Task not found</Text>
+        <Text style={styles.loadingText}>Loading: {loading ? 'true' : 'false'}</Text>
+        <Text style={styles.loadingText}>TaskData: {taskData ? 'exists' : 'null'}</Text>
       </View>
     );
   }
@@ -188,6 +229,10 @@ export default function TaskScheduleScreen() {
 
   return (
     <ScrollView style={styles.container}>
+      <View style={{ padding: 20, backgroundColor: 'red' }}>
+        <Text style={{ color: 'white', fontSize: 20 }}>DEBUG: Screen is rendering!</Text>
+        <Text style={{ color: 'white' }}>Task: {task?.title}</Text>
+      </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Task Type</Text>
         <View style={styles.typeRow}>
@@ -308,6 +353,32 @@ export default function TaskScheduleScreen() {
           ))}
         </View>
       </View>
+
+      {selectedType === 'meeting' && (
+        <>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Location</Text>
+            <TextInput
+              style={styles.input}
+              value={meetingLocation}
+              onChangeText={setMeetingLocation}
+              placeholder="Meeting location (optional)"
+              placeholderTextColor={theme.text.muted}
+            />
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Attendees</Text>
+            <TextInput
+              style={styles.input}
+              value={meetingAttendees}
+              onChangeText={setMeetingAttendees}
+              placeholder="Comma-separated list (optional)"
+              placeholderTextColor={theme.text.muted}
+            />
+          </View>
+        </>
+      )}
 
       <View style={styles.actions}>
         <TouchableOpacity
@@ -482,6 +553,15 @@ const styles = StyleSheet.create({
   },
   durationLabelSelected: {
     color: theme.accent.primary,
+  },
+  input: {
+    backgroundColor: theme.card.background,
+    borderRadius: 8,
+    padding: spacing.md,
+    color: theme.text.primary,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: theme.border.primary,
   },
   actions: {
     padding: spacing.lg,

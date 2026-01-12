@@ -44,8 +44,13 @@ export class AgendaItem {
     this.task_type = props.task_type || 'regular';
     this.meeting_data = props.meeting_data !== undefined ? props.meeting_data : null;
     this.notes = props.notes || "";
-    this.created_at = props.created_at || now();
-    this.updated_at = props.updated_at || now();
+
+    const created = props.created_at || now();
+    this.created_at = created instanceof Date ? created : new Date(created);
+
+    const updated = props.updated_at || now();
+    this.updated_at = updated instanceof Date ? updated : new Date(updated);
+
     this.file_path = props.file_path !== undefined ? props.file_path : null;
   }
 
@@ -93,8 +98,8 @@ export class AgendaItem {
       board_id: this.board_id,
       task_id: this.task_id,
       scheduled_date: this.scheduled_date,
-      created_at: this.created_at,
-      updated_at: this.updated_at,
+      created_at: this.created_at instanceof Date ? this.created_at.toISOString() : this.created_at,
+      updated_at: this.updated_at instanceof Date ? this.updated_at.toISOString() : this.updated_at,
     };
 
     if (this.scheduled_time) result.scheduled_time = this.scheduled_time;
@@ -107,6 +112,13 @@ export class AgendaItem {
   }
 
   static fromDict(data: Record<string, any>): AgendaItem {
+    const parseDate = (value: any): Date | undefined => {
+      if (!value) return undefined;
+      if (value instanceof Date) return value;
+      if (typeof value === 'string') return new Date(value);
+      return undefined;
+    };
+
     return new AgendaItem({
       id: data.id,
       project_id: data.project_id,
@@ -118,8 +130,8 @@ export class AgendaItem {
       task_type: data.task_type || 'regular',
       meeting_data: data.meeting_data || null,
       notes: data.notes || "",
-      created_at: data.created_at ? new Date(data.created_at) : undefined,
-      updated_at: data.updated_at ? new Date(data.updated_at) : undefined,
+      created_at: parseDate(data.created_at),
+      updated_at: parseDate(data.updated_at),
       file_path: data.file_path,
     });
   }

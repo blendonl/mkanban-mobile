@@ -2,7 +2,7 @@ import { FileSystemManager, NoteType as FSNoteType } from "./FileSystemManager";
 import { MarkdownParser } from "./MarkdownParser";
 import { NoteRepository, NoteFilter } from "../../domain/repositories/NoteRepository";
 import { Note, NoteType } from "../../domain/entities/Note";
-import { NoteId, ProjectId, TaskId } from "../../core/types";
+import { NoteId, ProjectId, TaskId, BoardId } from "../../core/types";
 import { getSafeFilename } from "../../utils/stringUtils";
 
 export class MarkdownNoteRepository implements NoteRepository {
@@ -123,12 +123,17 @@ export class MarkdownNoteRepository implements NoteRepository {
 
   async loadNotesByProject(projectId: ProjectId): Promise<Note[]> {
     const allNotes = await this.loadAllNotes();
-    return allNotes.filter(note => note.project_id === projectId);
+    return allNotes.filter(note => note.project_ids.includes(projectId));
+  }
+
+  async loadNotesByBoard(boardId: BoardId): Promise<Note[]> {
+    const allNotes = await this.loadAllNotes();
+    return allNotes.filter(note => note.board_ids.includes(boardId));
   }
 
   async loadNotesByTask(taskId: TaskId): Promise<Note[]> {
     const allNotes = await this.loadAllNotes();
-    return allNotes.filter(note => note.task_id === taskId);
+    return allNotes.filter(note => note.task_ids.includes(taskId));
   }
 
   async loadNotesByType(noteType: NoteType): Promise<Note[]> {
@@ -150,11 +155,15 @@ export class MarkdownNoteRepository implements NoteRepository {
     let notes = await this.loadAllNotes();
 
     if (filter.projectId) {
-      notes = notes.filter(n => n.project_id === filter.projectId);
+      notes = notes.filter(n => n.project_ids.includes(filter.projectId!));
+    }
+
+    if (filter.boardId) {
+      notes = notes.filter(n => n.board_ids.includes(filter.boardId!));
     }
 
     if (filter.taskId) {
-      notes = notes.filter(n => n.task_id === filter.taskId);
+      notes = notes.filter(n => n.task_ids.includes(filter.taskId!));
     }
 
     if (filter.noteType) {
@@ -194,8 +203,8 @@ export class MarkdownNoteRepository implements NoteRepository {
 
     const fsNoteType = this.mapNoteTypeToFS(note.note_type);
 
-    if (note.project_id) {
-      const notesDir = this.fileSystem.getProjectNotesDirectory(note.project_id, fsNoteType);
+    if (note.project_ids.length > 0) {
+      const notesDir = this.fileSystem.getProjectNotesDirectory(note.project_ids[0], fsNoteType);
       return `${notesDir}${this.getFilename(note)}.md`;
     }
 
@@ -247,5 +256,38 @@ export class MarkdownNoteRepository implements NoteRepository {
 
   getProjectNotesDirectory(projectId: ProjectId): string {
     return this.fileSystem.getProjectNotesDirectory(projectId);
+  }
+
+  async migrateNotesToArrayFormat(): Promise<{ migrated: number; errors: number }> {
+    let migrated = 0;
+    let errors = 0;
+
+    try {
+      const allNotes = await this.loadAllNotes();
+
+      for (const note of allNotes) {
+        try {
+          let needsMigration = false;
+
+          if (note.project_ids.length === 0 && note.board_ids.length === 0 && note.task_ids.length === 0) {
+            needsMigration = true;
+          }
+
+          if (needsMigration && note.file_path) {
+            await this.saveNote(note);
+            migrated++;
+          }
+        } catch (error) {
+          console.error(`Failed to migrate note ${note.id}:`, error);
+          errors++;
+        }
+      }
+
+      console.log(`Migration complete: ${migrated} notes migrated, ${errors} errors`);
+    } catch (error) {
+      console.error('Migration failed:', error);
+    }
+
+    return { migrated, errors };
   }
 }

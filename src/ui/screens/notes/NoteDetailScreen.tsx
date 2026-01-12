@@ -12,9 +12,10 @@ import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
-import { getNoteService } from '../../../core/DependencyContainer';
+import { getNoteService, getProjectService, getBoardService, getTaskService } from '../../../core/DependencyContainer';
 import { Note, NoteType } from '../../../domain/entities/Note';
 import { NotesStackParamList } from '../../navigation/TabNavigator';
+import EntityChip from '../../components/EntityChip';
 
 type NoteDetailRouteProp = RouteProp<NotesStackParamList, 'NoteDetail'>;
 type NoteDetailNavProp = StackNavigationProp<NotesStackParamList, 'NoteDetail'>;
@@ -41,18 +42,69 @@ export default function NoteDetailScreen() {
   const [note, setNote] = useState<Note | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [entityNames, setEntityNames] = useState<{
+    projects: Map<string, string>;
+    boards: Map<string, string>;
+    tasks: Map<string, string>;
+  }>({
+    projects: new Map(),
+    boards: new Map(),
+    tasks: new Map(),
+  });
 
   const loadNote = useCallback(async () => {
     try {
       const noteService = getNoteService();
       const loadedNote = await noteService.getNoteById(noteId);
       setNote(loadedNote);
+      if (loadedNote) {
+        await loadEntityNames(loadedNote);
+      }
     } catch (error) {
       console.error('Failed to load note:', error);
     } finally {
       setLoading(false);
     }
   }, [noteId]);
+
+  const loadEntityNames = async (note: Note) => {
+    try {
+      const projectService = getProjectService();
+      const boardService = getBoardService();
+      const taskService = getTaskService();
+
+      const newEntityNames = {
+        projects: new Map<string, string>(),
+        boards: new Map<string, string>(),
+        tasks: new Map<string, string>(),
+      };
+
+      for (const projectId of note.project_ids) {
+        try {
+          const project = await projectService.getProject(projectId);
+          if (project) newEntityNames.projects.set(projectId, project.name);
+        } catch (e) {}
+      }
+
+      for (const boardId of note.board_ids) {
+        try {
+          const board = await boardService.getBoard(boardId);
+          if (board) newEntityNames.boards.set(boardId, board.name);
+        } catch (e) {}
+      }
+
+      for (const taskId of note.task_ids) {
+        try {
+          const task = await taskService.getTask(taskId);
+          if (task) newEntityNames.tasks.set(taskId, task.title);
+        } catch (e) {}
+      }
+
+      setEntityNames(newEntityNames);
+    } catch (error) {
+      console.error('Failed to load entity names:', error);
+    }
+  };
 
   useEffect(() => {
     loadNote();
@@ -66,13 +118,13 @@ export default function NoteDetailScreen() {
             style={styles.headerButton}
             onPress={handleEdit}
           >
-            <Text style={styles.headerButtonText}>Edit</Text>
+            <Text style={styles.editButtonText}>✏️</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={handleDelete}
           >
-            <Text style={[styles.headerButtonText, styles.deleteText]}>Delete</Text>
+            <Text style={styles.deleteButtonText}>🗑️</Text>
           </TouchableOpacity>
         </View>
       ),
@@ -208,16 +260,10 @@ export default function NoteDetailScreen() {
 
       return (
         <Text key={index} style={styles.paragraph}>
-          {renderInlineFormatting(line)}
+          {line}
         </Text>
       );
     });
-  };
-
-  const renderInlineFormatting = (text: string) => {
-    return text
-      .replace(/\*\*(.+?)\*\*/g, '**$1**')
-      .replace(/__(.+?)__/g, '__$1__');
   };
 
   if (loading) {
@@ -236,6 +282,8 @@ export default function NoteDetailScreen() {
     );
   }
 
+  const hasEntities = note.project_ids.length > 0 || note.board_ids.length > 0 || note.task_ids.length > 0;
+
   return (
     <ScrollView
       style={styles.container}
@@ -249,11 +297,14 @@ export default function NoteDetailScreen() {
     >
       <View style={styles.header}>
         <View style={styles.typeRow}>
-          <Text style={styles.typeIcon}>{NOTE_TYPE_ICONS[note.note_type]}</Text>
-          <Text style={styles.typeLabel}>{NOTE_TYPE_LABELS[note.note_type]}</Text>
+          <View style={styles.typePill}>
+            <Text style={styles.typeIcon}>{NOTE_TYPE_ICONS[note.note_type]}</Text>
+            <Text style={styles.typeLabel}>{NOTE_TYPE_LABELS[note.note_type]}</Text>
+          </View>
         </View>
         <Text style={styles.title}>{note.title}</Text>
         <Text style={styles.date}>Updated {formatDate(note.updated_at)}</Text>
+
         {note.tags.length > 0 && (
           <View style={styles.tagsRow}>
             {note.tags.map(tag => (
@@ -261,6 +312,43 @@ export default function NoteDetailScreen() {
                 <Text style={styles.tagText}>#{tag}</Text>
               </View>
             ))}
+          </View>
+        )}
+
+        {hasEntities && (
+          <View style={styles.entitiesSection}>
+            <Text style={styles.entitiesSectionLabel}>Connected to</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.entityChipsContainer}>
+                {note.project_ids.map(id => (
+                  <EntityChip
+                    key={id}
+                    entityType="project"
+                    entityId={id}
+                    entityName={entityNames.projects.get(id) || id}
+                    showRemove={false}
+                  />
+                ))}
+                {note.board_ids.map(id => (
+                  <EntityChip
+                    key={id}
+                    entityType="board"
+                    entityId={id}
+                    entityName={entityNames.boards.get(id) || id}
+                    showRemove={false}
+                  />
+                ))}
+                {note.task_ids.map(id => (
+                  <EntityChip
+                    key={id}
+                    entityType="task"
+                    entityId={id}
+                    entityName={entityNames.tasks.get(id) || id}
+                    showRemove={false}
+                  />
+                ))}
+              </View>
+            </ScrollView>
           </View>
         )}
       </View>
@@ -293,44 +381,58 @@ const styles = StyleSheet.create({
   headerButtons: {
     flexDirection: 'row',
     marginRight: spacing.md,
+    gap: spacing.sm,
   },
   headerButton: {
-    marginLeft: spacing.md,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.glass.tint.neutral,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.glass.border,
   },
-  headerButtonText: {
-    color: theme.accent.primary,
-    fontSize: 16,
-    fontWeight: '500',
+  editButtonText: {
+    fontSize: 18,
   },
-  deleteText: {
-    color: theme.accent.error,
+  deleteButtonText: {
+    fontSize: 18,
   },
   header: {
-    padding: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border.primary,
+    padding: spacing.xl,
   },
   typeRow: {
+    marginBottom: spacing.md,
+  },
+  typePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    backgroundColor: theme.glass.tint.blue,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: theme.accent.primary + '40',
   },
   typeIcon: {
     fontSize: 16,
     marginRight: spacing.sm,
   },
   typeLabel: {
-    color: theme.text.secondary,
+    color: theme.accent.primary,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   title: {
     color: theme.text.primary,
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '700',
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
+    lineHeight: 36,
   },
   date: {
     color: theme.text.muted,
@@ -339,123 +441,151 @@ const styles = StyleSheet.create({
   tagsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
   },
   tag: {
     backgroundColor: theme.accent.primary + '20',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginRight: spacing.xs,
-    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 8,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
   },
   tagText: {
     color: theme.accent.primary,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
   },
+  entitiesSection: {
+    marginTop: spacing.lg,
+  },
+  entitiesSectionLabel: {
+    color: theme.text.secondary,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  entityChipsContainer: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.lg,
   },
   heading1: {
     color: theme.text.primary,
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '700',
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+    lineHeight: 34,
   },
   heading2: {
+    color: theme.text.primary,
+    fontSize: 22,
+    fontWeight: '600',
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+    lineHeight: 30,
+  },
+  heading3: {
     color: theme.text.primary,
     fontSize: 18,
     fontWeight: '600',
     marginTop: spacing.md,
     marginBottom: spacing.sm,
-  },
-  heading3: {
-    color: theme.text.primary,
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
+    lineHeight: 26,
   },
   paragraph: {
     color: theme.text.secondary,
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: spacing.xs,
+    fontSize: 16,
+    lineHeight: 26,
+    marginBottom: spacing.sm,
   },
   boldLine: {
     color: theme.text.primary,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    lineHeight: 24,
-    marginBottom: spacing.xs,
+    lineHeight: 26,
+    marginBottom: spacing.sm,
   },
   listItem: {
     flexDirection: 'row',
-    marginBottom: spacing.xs,
-    paddingLeft: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingLeft: spacing.md,
   },
   bullet: {
     color: theme.text.secondary,
-    fontSize: 15,
-    width: 20,
+    fontSize: 16,
+    width: 24,
+    lineHeight: 26,
   },
   listText: {
     color: theme.text.secondary,
-    fontSize: 15,
+    fontSize: 16,
     flex: 1,
-    lineHeight: 22,
+    lineHeight: 26,
   },
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: spacing.xs,
-    paddingLeft: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingLeft: spacing.md,
   },
   checkbox: {
     color: theme.text.muted,
-    fontSize: 16,
-    width: 24,
+    fontSize: 20,
+    width: 28,
+    lineHeight: 26,
   },
   checkboxChecked: {
     color: theme.accent.success,
-    fontSize: 16,
-    width: 24,
+    fontSize: 20,
+    width: 28,
+    lineHeight: 26,
   },
   checkboxText: {
     color: theme.text.secondary,
-    fontSize: 15,
+    fontSize: 16,
     flex: 1,
-    lineHeight: 22,
+    lineHeight: 26,
   },
   checkboxTextChecked: {
     textDecorationLine: 'line-through',
     color: theme.text.muted,
   },
   blockquote: {
-    borderLeftWidth: 3,
+    borderLeftWidth: 4,
     borderLeftColor: theme.accent.primary,
+    backgroundColor: theme.glass.tint.neutral,
     paddingLeft: spacing.md,
-    marginVertical: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingRight: spacing.md,
+    marginVertical: spacing.md,
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
   },
   blockquoteText: {
     color: theme.text.secondary,
-    fontSize: 15,
+    fontSize: 16,
     fontStyle: 'italic',
-    lineHeight: 22,
+    lineHeight: 26,
   },
   emptyLine: {
-    height: spacing.sm,
+    height: spacing.md,
   },
   footer: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
     borderTopWidth: 1,
     borderTopColor: theme.border.primary,
   },
   footerText: {
     color: theme.text.muted,
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'center',
   },
   bottomPadding: {

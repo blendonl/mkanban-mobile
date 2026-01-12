@@ -31,7 +31,13 @@ export type EventType =
   | 'app_startup'
   | 'app_shutdown'
   | 'app_foreground'
-  | 'app_background';
+  | 'app_background'
+  // File change events
+  | 'file_changed'
+  | 'notes_invalidated'
+  | 'agenda_invalidated'
+  | 'boards_invalidated'
+  | 'projects_invalidated';
 
 export interface BaseEventPayload {
   timestamp: Date;
@@ -68,12 +74,20 @@ export interface SystemEventPayload extends BaseEventPayload {
   metadata?: Record<string, any>;
 }
 
+export interface FileChangeEventPayload extends BaseEventPayload {
+  entityType: 'note' | 'agenda' | 'board' | 'project';
+  changeType: 'created' | 'modified' | 'deleted';
+  filePath: string;
+  affectedIds?: string[];
+}
+
 export type EventPayload =
   | TaskEventPayload
   | BoardEventPayload
   | ColumnEventPayload
   | GitEventPayload
-  | SystemEventPayload;
+  | SystemEventPayload
+  | FileChangeEventPayload;
 
 export type EventHandler<T extends EventPayload = EventPayload> = (
   payload: T

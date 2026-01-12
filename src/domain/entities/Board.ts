@@ -175,7 +175,7 @@ export class Board {
       name: this.name,
       project_id: this.project_id,
       description: this.description,
-      created_at: this.created_at,
+      created_at: this.created_at instanceof Date ? this.created_at.toISOString() : this.created_at,
     };
   }
 

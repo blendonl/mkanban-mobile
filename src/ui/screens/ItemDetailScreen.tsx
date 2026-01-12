@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { BoardStackParamList } from '../navigation/TabNavigator';
 import { Board } from '../../domain/entities/Board';
 import { Task } from '../../domain/entities/Task';
 import { Parent } from '../../domain/entities/Parent';
@@ -22,8 +22,8 @@ import { getIssueTypeIcon, getAllIssueTypes } from '../../utils/issueTypeUtils';
 import alertService from '../../services/AlertService';
 import { uiConstants } from '../theme';
 
-type ItemDetailScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ItemDetail'>;
-type ItemDetailScreenRouteProp = RouteProp<RootStackParamList, 'ItemDetail'>;
+type ItemDetailScreenNavigationProp = StackNavigationProp<BoardStackParamList, 'ItemDetail'>;
+type ItemDetailScreenRouteProp = RouteProp<BoardStackParamList, 'ItemDetail'>;
 
 interface Props {
   navigation: ItemDetailScreenNavigationProp;
@@ -401,6 +401,47 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      {/* Schedule Info */}
+      {!isCreateMode && task && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Schedule</Text>
+          <TouchableOpacity
+            style={styles.scheduleButton}
+            onPress={() => {
+              const rootNav = navigation.getParent();
+              if (rootNav) {
+                rootNav.navigate('AgendaTab', {
+                  screen: 'TaskSchedule',
+                  params: { taskId: task.id, boardId, taskData: task.toDict() }
+                });
+              }
+            }}
+          >
+            {task.isScheduled ? (
+              <View style={styles.scheduleInfo}>
+                <Text style={styles.scheduleIcon}>📅</Text>
+                <View style={styles.scheduleTextContainer}>
+                  <Text style={styles.scheduleDate}>
+                    {task.scheduled_date}
+                    {task.scheduled_time && ` at ${formatScheduleTime(task.scheduled_time)}`}
+                  </Text>
+                  {task.time_block_minutes && (
+                    <Text style={styles.scheduleDuration}>
+                      Duration: {task.time_block_minutes} minutes
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ) : (
+              <View style={styles.scheduleInfo}>
+                <Text style={styles.scheduleIcon}>📅</Text>
+                <Text style={styles.scheduleNotSet}>Schedule this task</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Action Buttons */}
       <View style={styles.buttonContainer}>
         <TouchableOpacity
@@ -425,6 +466,14 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
       </View>
     </ScrollView>
   );
+}
+
+function formatScheduleTime(time: string): string {
+  const [hours, minutes] = time.split(':');
+  const hour = parseInt(hours);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minutes} ${period}`;
 }
 
 const styles = StyleSheet.create({
@@ -624,5 +673,37 @@ const styles = StyleSheet.create({
   metadataValue: {
     fontSize: 13,
     color: theme.text.primary,
+  },
+  scheduleButton: {
+    borderWidth: 1,
+    borderColor: theme.border.primary,
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: theme.input.background,
+  },
+  scheduleInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scheduleIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  scheduleTextContainer: {
+    flex: 1,
+  },
+  scheduleDate: {
+    fontSize: 15,
+    color: theme.text.primary,
+    fontWeight: '500',
+  },
+  scheduleDuration: {
+    fontSize: 13,
+    color: theme.text.secondary,
+    marginTop: 2,
+  },
+  scheduleNotSet: {
+    fontSize: 15,
+    color: theme.text.secondary,
   },
 });

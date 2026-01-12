@@ -1,13 +1,17 @@
-import { NoteId, ProjectId, TaskId, Timestamp, FilePath } from "../../core/types";
+import { NoteId, ProjectId, TaskId, BoardId, Timestamp, FilePath } from "../../core/types";
 import { now } from "../../utils/dateUtils";
 import { generateIdFromName } from "../../utils/stringUtils";
 
 export type NoteType = 'general' | 'meeting' | 'daily' | 'task';
+export type EntityType = 'project' | 'board' | 'task';
 
 export interface NoteProps {
   id?: NoteId;
   title: string;
   content?: string;
+  project_ids?: ProjectId[];
+  board_ids?: BoardId[];
+  task_ids?: TaskId[];
   project_id?: ProjectId | null;
   task_id?: TaskId | null;
   note_type?: NoteType;
@@ -21,8 +25,9 @@ export class Note {
   id: NoteId;
   title: string;
   content: string;
-  project_id: ProjectId | null;
-  task_id: TaskId | null;
+  project_ids: ProjectId[];
+  board_ids: BoardId[];
+  task_ids: TaskId[];
   note_type: NoteType;
   tags: string[];
   created_at: Timestamp;
@@ -32,8 +37,25 @@ export class Note {
   constructor(props: NoteProps) {
     this.title = props.title;
     this.content = props.content || "";
-    this.project_id = props.project_id !== undefined ? props.project_id : null;
-    this.task_id = props.task_id !== undefined ? props.task_id : null;
+
+    if (props.project_ids) {
+      this.project_ids = props.project_ids;
+    } else if (props.project_id) {
+      this.project_ids = [props.project_id];
+    } else {
+      this.project_ids = [];
+    }
+
+    this.board_ids = props.board_ids || [];
+
+    if (props.task_ids) {
+      this.task_ids = props.task_ids;
+    } else if (props.task_id) {
+      this.task_ids = [props.task_id];
+    } else {
+      this.task_ids = [];
+    }
+
     this.note_type = props.note_type || 'general';
     this.tags = props.tags || [];
     this.created_at = props.created_at || now();
@@ -70,8 +92,9 @@ export class Note {
   update(updates: Partial<NoteProps>): void {
     if (updates.title !== undefined) this.title = updates.title;
     if (updates.content !== undefined) this.content = updates.content;
-    if (updates.project_id !== undefined) this.project_id = updates.project_id;
-    if (updates.task_id !== undefined) this.task_id = updates.task_id;
+    if (updates.project_ids !== undefined) this.project_ids = updates.project_ids;
+    if (updates.board_ids !== undefined) this.board_ids = updates.board_ids;
+    if (updates.task_ids !== undefined) this.task_ids = updates.task_ids;
     if (updates.note_type !== undefined) this.note_type = updates.note_type;
     if (updates.tags !== undefined) this.tags = updates.tags;
     this.updated_at = now();
@@ -103,7 +126,65 @@ export class Note {
   }
 
   get isTaskNote(): boolean {
-    return this.note_type === 'task' || this.task_id !== null;
+    return this.note_type === 'task' || this.task_ids.length > 0;
+  }
+
+  addProject(projectId: ProjectId): void {
+    if (!this.project_ids.includes(projectId)) {
+      this.project_ids.push(projectId);
+      this.updated_at = now();
+    }
+  }
+
+  removeProject(projectId: ProjectId): void {
+    const index = this.project_ids.indexOf(projectId);
+    if (index !== -1) {
+      this.project_ids.splice(index, 1);
+      this.updated_at = now();
+    }
+  }
+
+  addBoard(boardId: BoardId): void {
+    if (!this.board_ids.includes(boardId)) {
+      this.board_ids.push(boardId);
+      this.updated_at = now();
+    }
+  }
+
+  removeBoard(boardId: BoardId): void {
+    const index = this.board_ids.indexOf(boardId);
+    if (index !== -1) {
+      this.board_ids.splice(index, 1);
+      this.updated_at = now();
+    }
+  }
+
+  addTask(taskId: TaskId): void {
+    if (!this.task_ids.includes(taskId)) {
+      this.task_ids.push(taskId);
+      this.updated_at = now();
+    }
+  }
+
+  removeTask(taskId: TaskId): void {
+    const index = this.task_ids.indexOf(taskId);
+    if (index !== -1) {
+      this.task_ids.splice(index, 1);
+      this.updated_at = now();
+    }
+  }
+
+  hasEntity(type: EntityType, id: string): boolean {
+    switch (type) {
+      case 'project':
+        return this.project_ids.includes(id as ProjectId);
+      case 'board':
+        return this.board_ids.includes(id as BoardId);
+      case 'task':
+        return this.task_ids.includes(id as TaskId);
+      default:
+        return false;
+    }
   }
 
   get preview(): string {
@@ -132,12 +213,13 @@ export class Note {
       id: this.id,
       title: this.title,
       note_type: this.note_type,
-      created_at: this.created_at,
-      updated_at: this.updated_at,
+      created_at: this.created_at instanceof Date ? this.created_at.toISOString() : this.created_at,
+      updated_at: this.updated_at instanceof Date ? this.updated_at.toISOString() : this.updated_at,
     };
 
-    if (this.project_id) result.project_id = this.project_id;
-    if (this.task_id) result.task_id = this.task_id;
+    if (this.project_ids.length > 0) result.project_ids = this.project_ids;
+    if (this.board_ids.length > 0) result.board_ids = this.board_ids;
+    if (this.task_ids.length > 0) result.task_ids = this.task_ids;
     if (this.tags.length > 0) result.tags = this.tags;
 
     return result;
@@ -148,6 +230,9 @@ export class Note {
       id: data.id,
       title: data.title,
       content: content || data.content || "",
+      project_ids: data.project_ids || undefined,
+      board_ids: data.board_ids || [],
+      task_ids: data.task_ids || undefined,
       project_id: data.project_id || null,
       task_id: data.task_id || null,
       note_type: data.note_type || 'general',
@@ -189,7 +274,7 @@ export class Note {
       title,
       content: `# ${title}\n\n**Date:** ${dateStr}\n\n## Attendees\n\n- \n\n## Agenda\n\n1. \n\n## Notes\n\n\n\n## Action Items\n\n- [ ] \n`,
       note_type: 'meeting',
-      project_id: projectId || null,
+      project_ids: projectId ? [projectId] : [],
     });
   }
 }

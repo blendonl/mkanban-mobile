@@ -12,8 +12,9 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { getAgendaService } from '../../../core/DependencyContainer';
-import { ScheduledTask, DayAgenda } from '../../../services/AgendaService';
+import { ScheduledAgendaItem, DayAgenda } from '../../../services/AgendaService';
 import { AgendaStackParamList } from '../../navigation/TabNavigator';
+import { TimeBlockBar } from '../../components/TimeBlockBar';
 
 type AgendaDayRouteProp = RouteProp<AgendaStackParamList, 'AgendaDay'>;
 type AgendaDayNavProp = StackNavigationProp<AgendaStackParamList, 'AgendaDay'>;
@@ -66,32 +67,32 @@ export default function AgendaDayScreen() {
     setRefreshing(false);
   }, [loadDayData]);
 
-  const getTasksForHour = (hour: number): ScheduledTask[] => {
+  const getTasksForHour = (hour: number): ScheduledAgendaItem[] => {
     if (!dayAgenda) return [];
 
     const allTasks = [
       ...dayAgenda.meetings,
-      ...dayAgenda.tasks,
+      ...dayAgenda.regularTasks,
       ...dayAgenda.milestones,
     ];
 
-    return allTasks.filter(st => {
-      if (!st.task.scheduled_time) return false;
-      const taskHour = parseInt(st.task.scheduled_time.split(':')[0], 10);
+    return allTasks.filter(si => {
+      if (!si.agendaItem.scheduled_time) return false;
+      const taskHour = parseInt(si.agendaItem.scheduled_time.split(':')[0], 10);
       return taskHour === hour;
     });
   };
 
-  const getUnscheduledTimeTasks = (): ScheduledTask[] => {
+  const getUnscheduledTimeTasks = (): ScheduledAgendaItem[] => {
     if (!dayAgenda) return [];
 
     const allTasks = [
       ...dayAgenda.meetings,
-      ...dayAgenda.tasks,
+      ...dayAgenda.regularTasks,
       ...dayAgenda.milestones,
     ];
 
-    return allTasks.filter(st => !st.task.scheduled_time);
+    return allTasks.filter(si => !si.agendaItem.scheduled_time);
   };
 
   const formatHour = (hour: number): string => {
@@ -101,32 +102,42 @@ export default function AgendaDayScreen() {
     return `${hour - 12} PM`;
   };
 
-  const renderTaskCard = (item: ScheduledTask, compact: boolean = false) => {
-    const task = item.task;
-    const icon = TASK_TYPE_ICONS[task.task_type];
-    const duration = task.time_block_minutes;
+  const renderTaskCard = (item: ScheduledAgendaItem, compact: boolean = false) => {
+    const { agendaItem, task, boardName, isOrphaned } = item;
+    const icon = TASK_TYPE_ICONS[agendaItem.task_type];
+    const duration = agendaItem.duration_minutes;
+    const taskTitle = task?.title || agendaItem.task_id;
 
     return (
       <TouchableOpacity
-        key={task.id}
-        style={[styles.taskCard, compact && styles.taskCardCompact]}
-        onPress={() => navigation.navigate('TaskSchedule', { taskId: task.id, boardId: item.boardId })}
+        key={agendaItem.id}
+        style={[styles.taskCard, compact && styles.taskCardCompact, isOrphaned && styles.taskCardOrphaned]}
+        onPress={() => navigation.navigate('AgendaItemDetail', { agendaItemId: agendaItem.id })}
       >
         <View style={styles.taskCardLeft}>
           <Text style={styles.taskIcon}>{icon}</Text>
         </View>
         <View style={styles.taskCardContent}>
-          <Text style={styles.taskTitle} numberOfLines={1}>{task.title}</Text>
+          <Text style={[styles.taskTitle, isOrphaned && styles.taskTitleOrphaned]} numberOfLines={1}>
+            {taskTitle}
+          </Text>
           <View style={styles.taskMeta}>
-            <Text style={styles.taskBoard}>{item.boardName}</Text>
+            <Text style={styles.taskBoard}>{boardName}</Text>
             {duration && (
               <Text style={styles.taskDuration}>{duration} min</Text>
             )}
           </View>
+          {duration && (
+            <TimeBlockBar
+              taskType={agendaItem.task_type}
+              durationMinutes={duration}
+              maxDurationMinutes={120}
+            />
+          )}
         </View>
-        {task.task_type === 'meeting' && task.meeting_data?.location && (
+        {agendaItem.task_type === 'meeting' && agendaItem.meeting_data?.location && (
           <Text style={styles.taskLocation} numberOfLines={1}>
-            📍 {task.meeting_data.location}
+            📍 {agendaItem.meeting_data.location}
           </Text>
         )}
       </TouchableOpacity>
@@ -162,9 +173,9 @@ export default function AgendaDayScreen() {
 
   const unscheduledTasks = getUnscheduledTimeTasks();
   const hasScheduledTasks = dayAgenda && (
-    dayAgenda.tasks.some(t => t.task.scheduled_time) ||
-    dayAgenda.meetings.some(t => t.task.scheduled_time) ||
-    dayAgenda.milestones.some(t => t.task.scheduled_time)
+    dayAgenda.regularTasks.some(si => si.agendaItem.scheduled_time) ||
+    dayAgenda.meetings.some(si => si.agendaItem.scheduled_time) ||
+    dayAgenda.milestones.some(si => si.agendaItem.scheduled_time)
   );
 
   return (
@@ -277,6 +288,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     marginBottom: 0,
   },
+  taskCardOrphaned: {
+    opacity: 0.6,
+    borderColor: theme.accent.error,
+  },
   taskCardLeft: {
     marginRight: spacing.sm,
   },
@@ -290,6 +305,10 @@ const styles = StyleSheet.create({
     color: theme.text.primary,
     fontSize: 15,
     fontWeight: '500',
+  },
+  taskTitleOrphaned: {
+    textDecorationLine: 'line-through',
+    color: theme.text.secondary,
   },
   taskMeta: {
     flexDirection: 'row',

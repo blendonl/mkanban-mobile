@@ -1,7 +1,7 @@
-import { Note, NoteType } from '../domain/entities/Note';
+import { Note, NoteType, EntityType } from '../domain/entities/Note';
 import { NoteRepository, NoteFilter } from '../domain/repositories/NoteRepository';
 import { ValidationService } from './ValidationService';
-import { NoteId, ProjectId, TaskId } from '../core/types';
+import { NoteId, ProjectId, TaskId, BoardId } from '../core/types';
 import { ValidationError } from '../core/exceptions';
 
 export class NoteService {
@@ -22,6 +22,10 @@ export class NoteService {
     return this.repository.loadNotesByProject(projectId);
   }
 
+  async getNotesByBoard(boardId: BoardId): Promise<Note[]> {
+    return this.repository.loadNotesByBoard(boardId);
+  }
+
   async getNotesByTask(taskId: TaskId): Promise<Note[]> {
     return this.repository.loadNotesByTask(taskId);
   }
@@ -39,7 +43,11 @@ export class NoteService {
     content: string = "",
     options: {
       projectId?: ProjectId;
+      projectIds?: ProjectId[];
+      boardId?: BoardId;
+      boardIds?: BoardId[];
       taskId?: TaskId;
+      taskIds?: TaskId[];
       noteType?: NoteType;
       tags?: string[];
     } = {}
@@ -51,8 +59,9 @@ export class NoteService {
     const note = new Note({
       title: title.trim(),
       content,
-      project_id: options.projectId || null,
-      task_id: options.taskId || null,
+      project_ids: options.projectIds || (options.projectId ? [options.projectId] : []),
+      board_ids: options.boardIds || (options.boardId ? [options.boardId] : []),
+      task_ids: options.taskIds || (options.taskId ? [options.taskId] : []),
       note_type: options.noteType || 'general',
       tags: options.tags || [],
     });
@@ -89,8 +98,8 @@ export class NoteService {
     const note = new Note({
       title: title.trim() || 'Task Notes',
       content: `# ${title}\n\n`,
-      task_id: taskId,
-      project_id: projectId || null,
+      task_ids: [taskId],
+      project_ids: projectId ? [projectId] : [],
       note_type: 'task',
     });
 
@@ -102,7 +111,9 @@ export class NoteService {
     title: string;
     content: string;
     tags: string[];
-    projectId: ProjectId | null;
+    projectIds: ProjectId[];
+    boardIds: BoardId[];
+    taskIds: TaskId[];
   }>): Promise<Note | null> {
     const note = await this.repository.loadNoteById(noteId);
     if (!note) return null;
@@ -122,8 +133,16 @@ export class NoteService {
       note.tags = updates.tags;
     }
 
-    if (updates.projectId !== undefined) {
-      note.project_id = updates.projectId;
+    if (updates.projectIds !== undefined) {
+      note.project_ids = updates.projectIds;
+    }
+
+    if (updates.boardIds !== undefined) {
+      note.board_ids = updates.boardIds;
+    }
+
+    if (updates.taskIds !== undefined) {
+      note.task_ids = updates.taskIds;
     }
 
     await this.repository.saveNote(note);
@@ -170,5 +189,59 @@ export class NoteService {
     note.removeTag(tag);
     await this.repository.saveNote(note);
     return note;
+  }
+
+  async addEntityToNote(noteId: NoteId, entityType: EntityType, entityId: string): Promise<Note | null> {
+    const note = await this.repository.loadNoteById(noteId);
+    if (!note) return null;
+
+    switch (entityType) {
+      case 'project':
+        note.addProject(entityId as ProjectId);
+        break;
+      case 'board':
+        note.addBoard(entityId as BoardId);
+        break;
+      case 'task':
+        note.addTask(entityId as TaskId);
+        break;
+    }
+
+    await this.repository.saveNote(note);
+    return note;
+  }
+
+  async removeEntityFromNote(noteId: NoteId, entityType: EntityType, entityId: string): Promise<Note | null> {
+    const note = await this.repository.loadNoteById(noteId);
+    if (!note) return null;
+
+    switch (entityType) {
+      case 'project':
+        note.removeProject(entityId as ProjectId);
+        break;
+      case 'board':
+        note.removeBoard(entityId as BoardId);
+        break;
+      case 'task':
+        note.removeTask(entityId as TaskId);
+        break;
+    }
+
+    await this.repository.saveNote(note);
+    return note;
+  }
+
+  async getNotesForMultipleProjects(projectIds: ProjectId[]): Promise<Note[]> {
+    const allNotes = await this.repository.loadAllNotes();
+    return allNotes.filter(note =>
+      projectIds.some(id => note.project_ids.includes(id))
+    );
+  }
+
+  async getNotesForMultipleBoards(boardIds: BoardId[]): Promise<Note[]> {
+    const allNotes = await this.repository.loadAllNotes();
+    return allNotes.filter(note =>
+      boardIds.some(id => note.board_ids.includes(id))
+    );
   }
 }

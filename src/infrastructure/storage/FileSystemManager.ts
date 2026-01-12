@@ -312,12 +312,30 @@ export class FileSystemManager {
 
   async listFiles(directory: string, pattern?: string): Promise<string[]> {
     try {
+      const normalizedDir = directory.endsWith('/') ? directory : `${directory}/`;
+
+      if (Platform.OS === 'android' && this.isExternalStoragePath(directory)) {
+        const items = await StoragePermission.listDirectory(directory);
+        const files = items
+          .filter(item => !item.isDirectory)
+          .map(item => `${normalizedDir}${item.name}`);
+
+        if (!pattern) {
+          return files;
+        }
+
+        const regexPattern = this.globToRegex(pattern);
+        return files.filter(filePath => {
+          const name = filePath.split('/').pop() || '';
+          return regexPattern.test(name);
+        });
+      }
+
       const info = await FileSystem.getInfoAsync(directory);
       if (!info.exists) {
         return [];
       }
 
-      const normalizedDir = directory.endsWith('/') ? directory : `${directory}/`;
       const items = await FileSystem.readDirectoryAsync(directory);
       const files: string[] = [];
 

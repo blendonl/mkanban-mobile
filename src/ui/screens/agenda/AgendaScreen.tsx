@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -21,6 +22,7 @@ import { AgendaItemFormModal, AgendaFormData } from '../../components/AgendaItem
 import { Project } from '../../../domain/entities/Project';
 import { Board } from '../../../domain/entities/Board';
 import { getBoardService } from '../../../core/DependencyContainer';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 
 type AgendaScreenNavProp = StackNavigationProp<AgendaStackParamList, 'AgendaMain'>;
 
@@ -39,7 +41,10 @@ export default function AgendaScreen() {
   const loadWeekData = useCallback(async () => {
     try {
       const agendaService = getAgendaService();
-      const data = await agendaService.getAgendaForWeek(weekStart.toISOString().split('T')[0]);
+      const weekStartStr = weekStart.toISOString().split('T')[0];
+      console.log(`[AgendaScreen] Loading week data starting from: ${weekStartStr}`);
+      const data = await agendaService.getAgendaForWeek(weekStartStr);
+      console.log(`[AgendaScreen] Loaded week data, map size: ${data.size}`);
       setWeekData(data);
     } catch (error) {
       console.error('Failed to load week data:', error);
@@ -50,8 +55,10 @@ export default function AgendaScreen() {
 
   const loadProjects = async () => {
     try {
+      console.log('Loading projects...');
       const projectService = getProjectService();
       const allProjects = await projectService.getAllProjects();
+      console.log('Loaded projects:', allProjects.length);
       setProjects(allProjects);
     } catch (error) {
       console.error('Failed to load projects:', error);
@@ -62,6 +69,8 @@ export default function AgendaScreen() {
     loadWeekData();
     loadProjects();
   }, [loadWeekData]);
+
+  const { isAutoRefreshing } = useAutoRefresh(['agenda_invalidated'], loadWeekData);
 
   useFocusEffect(
     useCallback(() => {
@@ -126,6 +135,58 @@ export default function AgendaScreen() {
     navigation.navigate('AgendaItemDetail', {
       agendaItemId: scheduledItem.agendaItem.id,
     });
+  };
+
+  const handleAgendaItemLongPress = (scheduledItem: ScheduledAgendaItem) => {
+    Alert.alert(
+      scheduledItem.task?.title || 'Agenda Item',
+      'Choose an action',
+      [
+        {
+          text: 'View Details',
+          onPress: () => handleAgendaItemPress(scheduledItem),
+        },
+        {
+          text: 'Reschedule',
+          onPress: () => {
+            navigation.navigate('AgendaItemDetail', {
+              agendaItemId: scheduledItem.agendaItem.id,
+            });
+          },
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            Alert.alert(
+              'Delete Agenda Item',
+              'Are you sure you want to delete this scheduled item?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      const agendaService = getAgendaService();
+                      await agendaService.deleteAgendaItem(scheduledItem.agendaItem);
+                      await loadWeekData();
+                    } catch (error) {
+                      console.error('Failed to delete agenda item:', error);
+                      Alert.alert('Error', 'Failed to delete agenda item');
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
   };
 
   const handleLoadBoards = async (projectId: string): Promise<Board[]> => {
@@ -236,6 +297,7 @@ export default function AgendaScreen() {
             key={item.agendaItem.id}
             scheduledItem={item}
             onPress={() => handleAgendaItemPress(item)}
+            onLongPress={() => handleAgendaItemLongPress(item)}
           />
         ))}
       </View>

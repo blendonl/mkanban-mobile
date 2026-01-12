@@ -1,8 +1,9 @@
 import { Note, NoteType } from '../entities/Note';
-import { NoteId, ProjectId, TaskId } from '../../core/types';
+import { NoteId, ProjectId, TaskId, BoardId } from '../../core/types';
 
 export interface NoteFilter {
   projectId?: ProjectId;
+  boardId?: BoardId;
   taskId?: TaskId;
   noteType?: NoteType;
   tags?: string[];
@@ -15,6 +16,8 @@ export interface NoteRepository {
   loadNoteById(noteId: NoteId): Promise<Note | null>;
 
   loadNotesByProject(projectId: ProjectId): Promise<Note[]>;
+
+  loadNotesByBoard(boardId: BoardId): Promise<Note[]>;
 
   loadNotesByTask(taskId: TaskId): Promise<Note[]>;
 

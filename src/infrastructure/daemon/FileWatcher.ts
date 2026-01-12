@@ -63,12 +63,8 @@ export class FileWatcher {
       return;
     }
 
-    console.warn('FileWatcher: Disabled - boards are now project-scoped');
-    return;
-
     this.isRunning = true;
 
-    // Start polling
     this.intervalId = setInterval(() => {
       this.checkForChanges();
     }, this.pollingInterval);

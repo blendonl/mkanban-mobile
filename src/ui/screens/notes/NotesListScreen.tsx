@@ -13,9 +13,11 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
-import { getNoteService } from '../../../core/DependencyContainer';
+import { getNoteService, getProjectService, getBoardService, getTaskService } from '../../../core/DependencyContainer';
 import { Note, NoteType } from '../../../domain/entities/Note';
 import { NotesStackParamList } from '../../navigation/TabNavigator';
+import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import AutoRefreshIndicator from '../../components/AutoRefreshIndicator';
 
 type NotesListNavProp = StackNavigationProp<NotesStackParamList, 'NotesList'>;
 
@@ -41,18 +43,58 @@ export default function NotesListScreen() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<NoteType | 'all'>('all');
+  const [entityNames, setEntityNames] = useState<Map<string, string>>(new Map());
 
   const loadNotes = useCallback(async () => {
     try {
       const noteService = getNoteService();
       const loadedNotes = await noteService.getAllNotes();
       setNotes(loadedNotes);
+      await loadEntityNames(loadedNotes);
     } catch (error) {
       console.error('Failed to load notes:', error);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const { isAutoRefreshing } = useAutoRefresh(['notes_invalidated'], loadNotes);
+
+  const loadEntityNames = async (notes: Note[]) => {
+    try {
+      const projectService = getProjectService();
+      const boardService = getBoardService();
+      const taskService = getTaskService();
+      const names = new Map<string, string>();
+
+      const allEntityIds = new Set<string>();
+      notes.forEach(note => {
+        note.project_ids.forEach(id => allEntityIds.add(`p_${id}`));
+        note.board_ids.forEach(id => allEntityIds.add(`b_${id}`));
+        note.task_ids.forEach(id => allEntityIds.add(`t_${id}`));
+      });
+
+      for (const entityId of allEntityIds) {
+        try {
+          const [type, id] = entityId.split('_');
+          if (type === 'p') {
+            const project = await projectService.getProject(id);
+            if (project) names.set(entityId, project.name);
+          } else if (type === 'b') {
+            const board = await boardService.getBoard(id);
+            if (board) names.set(entityId, board.name);
+          } else if (type === 't') {
+            const task = await taskService.getTask(id);
+            if (task) names.set(entityId, task.title);
+          }
+        } catch (e) {}
+      }
+
+      setEntityNames(names);
+    } catch (error) {
+      console.error('Failed to load entity names:', error);
+    }
+  };
 
   useEffect(() => {
     loadNotes();
@@ -115,6 +157,45 @@ export default function NotesListScreen() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
+  const renderEntityIndicators = (note: Note) => {
+    const entities: { icon: string; name: string }[] = [];
+
+    note.project_ids.slice(0, 1).forEach(id => {
+      const name = entityNames.get(`p_${id}`) || id;
+      entities.push({ icon: '📁', name });
+    });
+
+    note.board_ids.slice(0, 1).forEach(id => {
+      const name = entityNames.get(`b_${id}`) || id;
+      entities.push({ icon: '📋', name });
+    });
+
+    const taskCount = note.task_ids.length;
+    if (taskCount > 0) {
+      entities.push({ icon: '✓', name: `${taskCount} task${taskCount > 1 ? 's' : ''}` });
+    }
+
+    const totalEntities = note.project_ids.length + note.board_ids.length + note.task_ids.length;
+    const showing = entities.length;
+    const remaining = totalEntities - showing;
+
+    if (entities.length === 0) return null;
+
+    return (
+      <View style={styles.entityIndicators}>
+        {entities.map((entity, index) => (
+          <Text key={index} style={styles.entityIndicatorText}>
+            {entity.icon} {entity.name}
+            {index < entities.length - 1 && ' • '}
+          </Text>
+        ))}
+        {remaining > 0 && (
+          <Text style={styles.entityIndicatorText}> • +{remaining} more</Text>
+        )}
+      </View>
+    );
+  };
+
   const renderNoteCard = ({ item: note }: { item: Note }) => {
     const icon = NOTE_TYPE_ICONS[note.note_type];
 
@@ -122,15 +203,19 @@ export default function NotesListScreen() {
       <TouchableOpacity
         style={styles.noteCard}
         onPress={() => handleNotePress(note)}
+        activeOpacity={0.8}
       >
         <View style={styles.noteHeader}>
-          <Text style={styles.noteIcon}>{icon}</Text>
-          <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
+          <View style={styles.noteHeaderLeft}>
+            <Text style={styles.noteIcon}>{icon}</Text>
+            <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
+          </View>
           <Text style={styles.noteDate}>{formatDate(note.updated_at)}</Text>
         </View>
         {note.preview && (
-          <Text style={styles.notePreview} numberOfLines={2}>{note.preview}</Text>
+          <Text style={styles.notePreview} numberOfLines={3}>{note.preview}</Text>
         )}
+        {renderEntityIndicators(note)}
         <View style={styles.noteMeta}>
           {note.tags.length > 0 && (
             <View style={styles.tagRow}>
@@ -153,6 +238,7 @@ export default function NotesListScreen() {
   const renderFilters = () => (
     <View style={styles.filterContainer}>
       <View style={styles.searchContainer}>
+        <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
           style={styles.searchInput}
           placeholder="Search notes..."
@@ -160,6 +246,11 @@ export default function NotesListScreen() {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Text style={styles.clearButton}>×</Text>
+          </TouchableOpacity>
+        )}
       </View>
       <View style={styles.typeFilters}>
         {NOTE_TYPE_FILTERS.map(filter => (
@@ -213,6 +304,7 @@ export default function NotesListScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.screenHeader}>
+        <AutoRefreshIndicator isRefreshing={isAutoRefreshing} />
         <View style={styles.headerLeft} />
         <TouchableOpacity
           style={styles.addButton}
@@ -293,21 +385,34 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.border.primary,
   },
   searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    backgroundColor: theme.input.background,
+    borderRadius: 12,
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
+    height: 44,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: spacing.sm,
   },
   searchInput: {
-    backgroundColor: theme.input.background,
-    borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    flex: 1,
     color: theme.text.primary,
     fontSize: 15,
+  },
+  clearButton: {
+    fontSize: 24,
+    color: theme.text.muted,
+    fontWeight: '300',
   },
   typeFilters: {
     flexDirection: 'row',
     paddingHorizontal: spacing.sm,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
   },
   filterButton: {
     flex: 1,
@@ -315,12 +420,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.sm,
-    marginHorizontal: spacing.xs,
-    borderRadius: 8,
-    backgroundColor: theme.card.background,
+    borderRadius: 20,
+    backgroundColor: theme.glass.tint.neutral,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   filterButtonActive: {
     backgroundColor: theme.accent.primary + '30',
+    borderColor: theme.accent.primary,
   },
   filterIcon: {
     fontSize: 14,
@@ -333,6 +440,7 @@ const styles = StyleSheet.create({
   },
   filterLabelActive: {
     color: theme.accent.primary,
+    fontWeight: '600',
   },
   list: {
     padding: spacing.md,
@@ -343,36 +451,57 @@ const styles = StyleSheet.create({
   },
   noteCard: {
     backgroundColor: theme.glass.tint.neutral,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    borderRadius: 16,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: theme.glass.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   noteHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  noteHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   noteIcon: {
-    fontSize: 16,
+    fontSize: 20,
     marginRight: spacing.sm,
   },
   noteTitle: {
     flex: 1,
     color: theme.text.primary,
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
   },
   noteDate: {
     color: theme.text.muted,
-    fontSize: 12,
+    fontSize: 11,
+    marginLeft: spacing.sm,
   },
   notePreview: {
     color: theme.text.secondary,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 22,
     marginBottom: spacing.sm,
+  },
+  entityIndicators: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.sm,
+  },
+  entityIndicatorText: {
+    color: theme.text.tertiary,
+    fontSize: 11,
   },
   noteMeta: {
     flexDirection: 'row',
@@ -387,13 +516,13 @@ const styles = StyleSheet.create({
   tag: {
     backgroundColor: theme.accent.primary + '20',
     paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingVertical: 3,
+    borderRadius: 6,
     marginRight: spacing.xs,
   },
   tagText: {
     color: theme.accent.primary,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
   },
   moreTagsText: {
@@ -411,8 +540,8 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   emptyIcon: {
-    fontSize: 64,
-    marginBottom: spacing.md,
+    fontSize: 80,
+    marginBottom: spacing.lg,
   },
   emptyTitle: {
     color: theme.text.primary,
@@ -424,7 +553,7 @@ const styles = StyleSheet.create({
     color: theme.text.secondary,
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
   },
   emptyActions: {
     flexDirection: 'row',
@@ -432,9 +561,9 @@ const styles = StyleSheet.create({
   },
   createButton: {
     backgroundColor: theme.accent.primary,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   createButtonText: {
     color: theme.background.primary,
@@ -442,10 +571,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dailyButton: {
-    backgroundColor: theme.card.background,
-    paddingHorizontal: spacing.lg,
+    backgroundColor: theme.glass.tint.neutral,
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: theme.border.primary,
   },
@@ -464,21 +593,21 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    right: spacing.lg,
-    bottom: 100,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    right: spacing.lg + 8,
+    bottom: 24 + 80,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: theme.accent.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 4,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   fabText: {
-    fontSize: 24,
+    fontSize: 28,
   },
 });

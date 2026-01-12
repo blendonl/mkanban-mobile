@@ -39,7 +39,7 @@ export class Parent {
       name: this.name,
       description: this.description,
       color: this.color,
-      created_at: this.created_at,
+      created_at: this.created_at instanceof Date ? this.created_at.toISOString() : this.created_at,
     };
   }
 

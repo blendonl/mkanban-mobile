@@ -15,13 +15,16 @@ export class MarkdownAgendaRepository implements AgendaRepository {
   async loadAgendaItemsForDate(date: string): Promise<AgendaItem[]> {
     try {
       const dayDir = this.fileSystem.getAgendaDayDirectoryFromDate(date);
+      console.log(`[AgendaRepository] Checking directory: ${dayDir}`);
       const exists = await this.fileSystem.directoryExists(dayDir);
+      console.log(`[AgendaRepository] Directory exists: ${exists}`);
 
       if (!exists) {
         return [];
       }
 
       const files = await this.fileSystem.listFiles(dayDir, '*.md');
+      console.log(`[AgendaRepository] Found ${files.length} .md files in ${dayDir}`);
       const items: AgendaItem[] = [];
 
       for (const filePath of files) {
@@ -31,6 +34,7 @@ export class MarkdownAgendaRepository implements AgendaRepository {
         }
       }
 
+      console.log(`[AgendaRepository] Loaded ${items.length} agenda items for ${date}`);
       return items.sort((a, b) => {
         const timeA = a.scheduledDateTime?.getTime() || 0;
         const timeB = b.scheduledDateTime?.getTime() || 0;
@@ -209,6 +213,16 @@ export class MarkdownAgendaRepository implements AgendaRepository {
         file_path: filePath,
         notes: parsed.content.trim(),
       };
+
+      if (data.scheduled_date instanceof Date) {
+        data.scheduled_date = data.scheduled_date.toISOString().split('T')[0];
+      }
+      if (data.created_at instanceof Date) {
+        data.created_at = data.created_at.toISOString();
+      }
+      if (data.updated_at instanceof Date) {
+        data.updated_at = data.updated_at.toISOString();
+      }
 
       return AgendaItem.fromDict(data);
     } catch (error) {
