@@ -146,31 +146,63 @@ export class StorageConfig {
       return { ...this.cachedConfig };
     }
 
-    try {
-      const configDirInfo = await FileSystem.getInfoAsync(this.configDir);
-      if (!configDirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(this.configDir, { intermediates: true });
-      }
+    const LOAD_TIMEOUT_MS = 10000;
+    let timeoutId: NodeJS.Timeout | null = null;
+    let loadCompleted = false;
 
-      const configFileInfo = await FileSystem.getInfoAsync(this.configFile);
-      if (!configFileInfo.exists) {
-        const defaultConfig: StorageConfigData = {
-          version: CONFIG_VERSION,
-        };
-        await this.saveConfig(defaultConfig);
+    const loadConfigInternal = async (): Promise<StorageConfigData> => {
+      try {
+        console.log('[StorageConfig] Loading config from:', this.configFile);
+
+        const configDirInfo = await FileSystem.getInfoAsync(this.configDir);
+        if (!configDirInfo.exists) {
+          console.log('[StorageConfig] Config directory does not exist, creating...');
+          await FileSystem.makeDirectoryAsync(this.configDir, { intermediates: true });
+        }
+
+        const configFileInfo = await FileSystem.getInfoAsync(this.configFile);
+        if (!configFileInfo.exists) {
+          console.log('[StorageConfig] Config file does not exist, creating default...');
+          const defaultConfig: StorageConfigData = {
+            version: CONFIG_VERSION,
+          };
+          loadCompleted = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          await this.saveConfig(defaultConfig);
+          return defaultConfig;
+        }
+
+        console.log('[StorageConfig] Reading config file...');
+        const content = await FileSystem.readAsStringAsync(this.configFile);
+        const config: StorageConfigData = JSON.parse(content);
+
+        this.cachedConfig = config;
+        loadCompleted = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        console.log('[StorageConfig] Config loaded successfully');
+
+        return { ...config };
+      } catch (error) {
+        console.error('[StorageConfig] Failed to load config:', error);
+        const defaultConfig: StorageConfigData = { version: CONFIG_VERSION };
+        this.cachedConfig = defaultConfig;
+        loadCompleted = true;
+        if (timeoutId) clearTimeout(timeoutId);
         return defaultConfig;
       }
+    };
 
-      const content = await FileSystem.readAsStringAsync(this.configFile);
-      const config: StorageConfigData = JSON.parse(content);
+    const timeoutPromise = new Promise<StorageConfigData>((resolve) => {
+      timeoutId = setTimeout(() => {
+        if (loadCompleted) return;
+        console.warn('[StorageConfig] Load config timed out, using default');
+        const defaultConfig: StorageConfigData = { version: CONFIG_VERSION };
+        this.cachedConfig = defaultConfig;
+        resolve(defaultConfig);
+      }, LOAD_TIMEOUT_MS);
+    });
 
-      this.cachedConfig = config;
-
-      return { ...config };
-    } catch (error) {
-      console.error('Failed to load storage config:', error);
-      return { version: CONFIG_VERSION };
-    }
+    return Promise.race([loadConfigInternal(), timeoutPromise]);
   }
 
   private async saveConfig(config: StorageConfigData): Promise<void> {

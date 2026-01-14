@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Screen } from '../../components/Screen';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
@@ -259,9 +259,9 @@ export default function TimeOverviewScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <Screen hasTabBar>
         <Text style={styles.loadingText}>Loading time data...</Text>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
@@ -272,7 +272,7 @@ export default function TimeOverviewScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <Screen hasTabBar>
       <ScrollView
         style={styles.scrollView}
         refreshControl={
@@ -296,7 +296,7 @@ export default function TimeOverviewScreen() {
           renderEmpty()
         )}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 

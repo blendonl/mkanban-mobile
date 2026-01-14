@@ -21,6 +21,7 @@ import theme from '../theme';
 import { getIssueTypeIcon, getAllIssueTypes } from '../../utils/issueTypeUtils';
 import alertService from '../../services/AlertService';
 import { uiConstants } from '../theme';
+import { Screen } from '../components/Screen';
 
 type ItemDetailScreenNavigationProp = StackNavigationProp<BoardStackParamList, 'ItemDetail'>;
 type ItemDetailScreenRouteProp = RouteProp<BoardStackParamList, 'ItemDetail'>;
@@ -98,8 +99,8 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
     ? columnId
       ? board.columns.find((col) => col.id === columnId)
       : task
-      ? board.columns.find((col) => col.tasks.some((t) => t.id === task.id))
-      : null
+        ? board.columns.find((col) => col.tasks.some((t) => t.id === task.id))
+        : null
     : null;
 
   const handleSave = async () => {
@@ -219,7 +220,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   // Issue Type Picker Modal
   if (showIssueTypePicker) {
     return (
-      <ScrollView style={styles.container}>
+      <Screen style={styles.container} scrollable hasTabBar>
         <View style={styles.pickerHeader}>
           <Text style={styles.pickerTitle}>Select Issue Type</Text>
           <TouchableOpacity onPress={() => setShowIssueTypePicker(false)}>
@@ -243,14 +244,14 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
             {selectedIssueType === issueType && <Text style={styles.checkmark}>✓</Text>}
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </Screen>
     );
   }
 
   // Parent Picker Modal
   if (showParentPicker) {
     return (
-      <ScrollView style={styles.container}>
+      <Screen style={styles.container} scrollable hasTabBar>
         <View style={styles.pickerHeader}>
           <Text style={styles.pickerTitle}>Select Parent</Text>
           <TouchableOpacity onPress={() => setShowParentPicker(false)}>
@@ -284,12 +285,12 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
             {selectedParentId === parent.id && <Text style={styles.checkmark}>✓</Text>}
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </Screen>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <Screen style={styles.container} contentContainerStyle={styles.content} scrollable hasTabBar>
       {/* Title Input */}
       <View style={styles.section}>
         <Text style={styles.label}>Title *</Text>
@@ -464,7 +465,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         )}
       </View>
-    </ScrollView>
+    </Screen>
   );
 }
 

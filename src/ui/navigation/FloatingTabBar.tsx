@@ -17,9 +17,11 @@ import {
   TimeIcon,
 } from '../components/icons/TabIcons';
 
+import uiConstants from '../theme/uiConstants';
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const TAB_BAR_WIDTH = SCREEN_WIDTH - 32;
-const TAB_BAR_HEIGHT = 64;
+const TAB_BAR_HEIGHT = uiConstants.TAB_BAR_HEIGHT;
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 

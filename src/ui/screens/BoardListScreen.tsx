@@ -8,7 +8,7 @@ import {
   RefreshControl,
   TextInput,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Screen } from "../components/Screen";
 import { StackNavigationProp } from "@react-navigation/stack";
 import { Board } from "../../domain/entities/Board";
 import { getBoardService } from "../../core/DependencyContainer";
@@ -132,7 +132,7 @@ export default function BoardListScreen({ navigation }: Props) {
 
   if (!currentProject) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <Screen hasTabBar>
         <View style={styles.centerContainer}>
           <EmptyState
             title="No Project Selected"
@@ -141,23 +141,23 @@ export default function BoardListScreen({ navigation }: Props) {
             onAction={() => navigation.navigate("Projects" as any)}
           />
         </View>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <Screen hasTabBar>
         <View style={styles.centerContainer}>
           <Text style={styles.loadingText}>Loading boards...</Text>
         </View>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   if (showCreateDialog) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <Screen hasTabBar>
         <View style={styles.dialogContainer}>
           <Text style={styles.dialogTitle}>Create New Board</Text>
 
@@ -200,12 +200,12 @@ export default function BoardListScreen({ navigation }: Props) {
             </TouchableOpacity>
           </View>
         </View>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <Screen hasTabBar>
       <View style={styles.screenHeader}>
         <View style={styles.headerLeft} />
         <TouchableOpacity
@@ -262,7 +262,7 @@ export default function BoardListScreen({ navigation }: Props) {
           <Text style={styles.fabText}>+</Text>
         </TouchableOpacity>
       )}
-    </SafeAreaView>
+    </Screen>
   );
 }
 

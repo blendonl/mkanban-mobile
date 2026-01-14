@@ -6,13 +6,17 @@ const FILE_WATCHER_TASK_NAME = 'FILE_WATCHER_TASK';
 export async function registerBackgroundFileWatcherTask(
   forceCheckCallback: () => Promise<void>
 ): Promise<void> {
+  console.log('[BackgroundFileWatcherTask] Starting background task registration...');
+  
   try {
     TaskManager.defineTask(FILE_WATCHER_TASK_NAME, async () => {
       try {
+        console.log('[BackgroundFileWatcherTask] Background task executing...');
         await forceCheckCallback();
+        console.log('[BackgroundFileWatcherTask] Background task completed successfully');
         return BackgroundFetch.BackgroundFetchResult.NewData;
       } catch (error) {
-        console.error('Background file watcher task error:', error);
+        console.error('[BackgroundFileWatcherTask] Background task execution error:', error);
         return BackgroundFetch.BackgroundFetchResult.Failed;
       }
     });
@@ -20,18 +24,20 @@ export async function registerBackgroundFileWatcherTask(
     const isRegistered = await TaskManager.isTaskRegisteredAsync(FILE_WATCHER_TASK_NAME);
 
     if (!isRegistered) {
+      console.log('[BackgroundFileWatcherTask] Task not registered, registering now...');
       await BackgroundFetch.registerTaskAsync(FILE_WATCHER_TASK_NAME, {
         minimumInterval: 15 * 60,
         stopOnTerminate: false,
         startOnBoot: true,
       });
 
-      console.log('Background file watcher task registered');
+      console.log('[BackgroundFileWatcherTask] Background file watcher task registered successfully');
     } else {
-      console.log('Background file watcher task already registered');
+      console.log('[BackgroundFileWatcherTask] Background file watcher task already registered');
     }
   } catch (error) {
-    console.error('Failed to register background file watcher task:', error);
+    console.error('[BackgroundFileWatcherTask] Failed to register background file watcher task:', error);
+    throw error;
   }
 }
 

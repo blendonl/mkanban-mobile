@@ -42,13 +42,13 @@ export class CachedProjectService {
     return projects;
   }
 
-  async getProject(projectId: ProjectId): Promise<Project | null> {
+  async getProjectById(projectId: ProjectId): Promise<Project | null> {
     const cached = this.cache.get(projectId);
     if (cached) {
       return cached;
     }
 
-    const project = await this.baseService.getProject(projectId);
+    const project = await this.baseService.getProjectById(projectId);
     if (project) {
       this.cache.set(projectId, project);
     }
@@ -73,10 +73,7 @@ export class CachedProjectService {
     return result;
   }
 
-  async saveProject(project: Project): Promise<void> {
-    await this.baseService.saveProject(project);
-    this.invalidateCache();
-  }
+
 
   destroy(): void {
     this.eventSubscriptions.forEach((sub) => sub.unsubscribe());

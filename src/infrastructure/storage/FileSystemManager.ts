@@ -26,38 +26,65 @@ export class FileSystemManager {
 
   async initialize(): Promise<void> {
     if (this.initialized) {
+      console.log('[FileSystemManager] Already initialized');
       return;
     }
 
+    console.log('[FileSystemManager] Starting initialization...');
+
     if (Platform.OS === 'android') {
-      const hasAccess = await hasExternalStorageAccess();
-      if (hasAccess) {
-        const externalDataPath = await getDefaultExternalDataPath();
-        if (externalDataPath) {
-          const normalizedPath = externalDataPath.endsWith('/') ? externalDataPath.slice(0, -1) : externalDataPath;
+      console.log('[FileSystemManager] Android detected, checking external storage...');
+      
+      try {
+        const hasAccess = await hasExternalStorageAccess();
+        console.log('[FileSystemManager] External storage access:', hasAccess);
+        
+        if (hasAccess) {
+          const externalDataPath = await getDefaultExternalDataPath();
+          console.log('[FileSystemManager] External data path:', externalDataPath);
+          
+          if (externalDataPath) {
+            const normalizedPath = externalDataPath.endsWith('/') ? externalDataPath.slice(0, -1) : externalDataPath;
+            console.log('[FileSystemManager] Creating external directories...');
 
-          const dataCreated = await StoragePermission.createDirectory(normalizedPath);
-          const boardsPath = `${normalizedPath}/boards`;
-          const boardsCreated = await StoragePermission.createDirectory(boardsPath);
+            const dataCreated = await StoragePermission.createDirectory(normalizedPath);
+            console.log('[FileSystemManager] Data directory created:', dataCreated);
+            
+            const boardsPath = `${normalizedPath}/boards`;
+            const boardsCreated = await StoragePermission.createDirectory(boardsPath);
+            console.log('[FileSystemManager] Boards directory created:', boardsCreated);
 
-          if (dataCreated && boardsCreated) {
-            this.baseDirectory = normalizedPath;
-            this.usingExternalStorage = true;
-            console.log('Using external storage:', this.baseDirectory);
+            if (dataCreated && boardsCreated) {
+              this.baseDirectory = normalizedPath;
+              this.usingExternalStorage = true;
+              console.log('[FileSystemManager] Using external storage:', this.baseDirectory);
+            } else {
+              console.log('[FileSystemManager] Failed to create external storage directories, falling back to internal storage');
+            }
           } else {
-            console.log('Failed to create external storage directories, using internal storage');
+            console.log('[FileSystemManager] No external data path available, using internal storage');
           }
+        } else {
+          console.log('[FileSystemManager] External storage not accessible, using internal storage');
         }
-      } else {
-        console.log('External storage not accessible, using internal storage');
+      } catch (error) {
+        console.error('[FileSystemManager] Error checking external storage, falling back to internal:', error);
       }
     }
 
     if (!this.usingExternalStorage) {
-      await this.ensureDirectoryExists(this.getDataDirectory());
+      console.log('[FileSystemManager] Setting up internal storage...');
+      try {
+        await this.ensureDirectoryExists(this.getDataDirectory());
+        console.log('[FileSystemManager] Internal storage directory created:', this.getDataDirectory());
+      } catch (error) {
+        console.error('[FileSystemManager] Failed to create internal storage directory:', error);
+        throw new Error(`Failed to initialize file system: ${error}`);
+      }
     }
 
     this.initialized = true;
+    console.log('[FileSystemManager] Initialization complete');
   }
 
   isInitialized(): boolean {

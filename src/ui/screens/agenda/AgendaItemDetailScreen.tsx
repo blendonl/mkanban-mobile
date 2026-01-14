@@ -11,11 +11,13 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AgendaStackParamList } from '../../navigation/TabNavigator';
-import { getAgendaService, getBoardService } from '../../../core/DependencyContainer';
+import { getAgendaService, getBoardService, getProjectService } from '../../../core/DependencyContainer';
 import { ScheduledAgendaItem } from '../../../services/AgendaService';
 import { AgendaItem } from '../../../domain/entities/AgendaItem';
 import { OrphanedItemBadge } from '../../components/OrphanedItemBadge';
 import { theme } from '../../theme/colors';
+
+import { Screen } from '../../components/Screen';
 
 type Props = NativeStackScreenProps<AgendaStackParamList, 'AgendaItemDetail'>;
 
@@ -34,8 +36,7 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
     setLoading(true);
     try {
       const agendaService = getAgendaService();
-      const agendaRepo = agendaService['agendaRepository'];
-      const item = await agendaRepo.loadAgendaItemById(agendaItemId);
+      const item = await agendaService.getAgendaItemById(agendaItemId);
 
       if (!item) {
         Alert.alert('Error', 'Agenda item not found');
@@ -44,7 +45,7 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
       }
 
       const boardService = getBoardService();
-      const projectService = agendaService['projectService'];
+      const projectService = getProjectService();
       const board = await boardService.getBoardById(item.board_id);
 
       let task = null;
@@ -155,10 +156,10 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
   const handleNavigateToTask = () => {
     if (scheduledItem?.task && !scheduledItem.isOrphaned) {
       navigation.getParent()?.navigate('BoardsTab', {
-        screen: 'Board',
+        screen: 'ItemDetail',
         params: {
           boardId: scheduledItem.boardId,
-          taskId: scheduledItem.task.id,
+          itemId: scheduledItem.task.id,
         },
       });
     }
@@ -200,7 +201,12 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
   const { agendaItem, task, projectName, boardName, columnName, isOrphaned } = scheduledItem;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <Screen
+      scrollable
+      hasTabBar
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>{task?.title || agendaItem.task_id}</Text>
         {isOrphaned && (
@@ -274,7 +280,7 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
 
       {!isOrphaned && task && (
         <TouchableOpacity style={styles.actionButton} onPress={handleNavigateToTask}>
-          <Text style={styles.actionButtonText}>View Task in Board</Text>
+          <Text style={styles.actionButtonText}>View Task Details</Text>
         </TouchableOpacity>
       )}
 
@@ -326,14 +332,13 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
           <Text style={styles.deleteButtonText}>🗑️ Delete</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+    </Screen>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.background.primary,
   },
   contentContainer: {
     padding: 16,

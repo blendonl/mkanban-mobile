@@ -1,9 +1,10 @@
 import { Board } from '../domain/entities/Board';
 import { BoardService } from './BoardService';
-import { BoardId, ProjectId } from '../core/types';
+import { BoardId, ProjectId, ColumnId } from '../core/types';
 import { getCacheManager } from '../infrastructure/cache/CacheManager';
 import { EntityCache } from '../infrastructure/cache/EntityCache';
 import { getEventBus, EventSubscription, FileChangeEventPayload } from '../core/EventBus';
+import { Column } from '../domain/entities/Column';
 
 export class CachedBoardService {
   private cache: EntityCache<Board>;
@@ -33,40 +34,49 @@ export class CachedBoardService {
     getEventBus().publishSync('boards_invalidated', { timestamp: new Date() });
   }
 
-  async getBoard(boardId: BoardId): Promise<Board | null> {
+  async getBoardById(boardId: BoardId): Promise<Board> {
     const cached = this.cache.get(boardId);
     if (cached) {
       return cached;
     }
 
-    const board = await this.baseService.getBoard(boardId);
+    const board = await this.baseService.getBoardById(boardId);
     if (board) {
       this.cache.set(boardId, board);
     }
     return board;
   }
 
-  async getBoardsInProject(projectId: ProjectId): Promise<Board[]> {
+  async getBoardsByProject(projectId: ProjectId): Promise<Board[]> {
     const cached = this.listCache.get(projectId);
     if (cached) {
       return cached;
     }
 
-    const boards = await this.baseService.getBoardsInProject(projectId);
+    const boards = await this.baseService.getBoardsByProject(projectId);
     this.listCache.set(projectId, boards);
     return boards;
   }
 
-  async createBoard(name: string, projectId: ProjectId, description?: string): Promise<Board> {
-    const board = await this.baseService.createBoard(name, projectId, description);
+  async getAllBoards(): Promise<Board[]> {
+    // We don't cache all boards list for now as it's rarely used
+    // or we could cache it with a special key if needed
+    return await this.baseService.getAllBoards();
+  }
+
+  async createBoardInProject(projectId: ProjectId, name: string, description?: string): Promise<Board> {
+    const board = await this.baseService.createBoardInProject(projectId, name, description);
     this.invalidateCache();
     return board;
   }
 
-  async updateBoard(boardId: BoardId, updates: Partial<Board>): Promise<Board | null> {
-    const board = await this.baseService.updateBoard(boardId, updates);
+  async saveBoard(board: Board): Promise<void> {
+    await this.baseService.saveBoard(board);
     this.invalidateCache();
-    return board;
+  }
+
+  async canDeleteBoard(boardId: BoardId): Promise<boolean> {
+    return await this.baseService.canDeleteBoard(boardId);
   }
 
   async deleteBoard(boardId: BoardId): Promise<boolean> {
@@ -75,9 +85,16 @@ export class CachedBoardService {
     return result;
   }
 
-  async saveBoard(board: Board): Promise<void> {
-    await this.baseService.saveBoard(board);
+  async addColumnToBoard(board: Board, columnName: string, position?: number | null): Promise<Column> {
+    const column = await this.baseService.addColumnToBoard(board, columnName, position);
     this.invalidateCache();
+    return column;
+  }
+
+  async removeColumnFromBoard(board: Board, columnId: ColumnId): Promise<boolean> {
+    const result = await this.baseService.removeColumnFromBoard(board, columnId);
+    this.invalidateCache();
+    return result;
   }
 
   destroy(): void {

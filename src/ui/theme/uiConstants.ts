@@ -13,6 +13,10 @@ export const uiConstants = {
   HEADER_BUTTON_SIZE: 44,
   BADGE_MIN_WIDTH: 24,
 
+  // Tab Bar
+  TAB_BAR_HEIGHT: 64,
+  TAB_BAR_BOTTOM_MARGIN: 8,
+
   // Text limits
   DESCRIPTION_PREVIEW_LENGTH: 100,
   PARENT_NAME_MAX_LENGTH: 100,

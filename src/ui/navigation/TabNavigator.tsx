@@ -15,7 +15,6 @@ import AgendaDayScreen from '../screens/agenda/AgendaDayScreen';
 import TaskScheduleScreen from '../screens/agenda/TaskScheduleScreen';
 import { AgendaItemDetailScreen } from '../screens/agenda/AgendaItemDetailScreen';
 import NotesListScreen from '../screens/notes/NotesListScreen';
-import NoteDetailScreen from '../screens/notes/NoteDetailScreen';
 import NoteEditorScreen from '../screens/notes/NoteEditorScreen';
 import TimeOverviewScreen from '../screens/time/TimeOverviewScreen';
 import TimeLogDetailScreen from '../screens/time/TimeLogDetailScreen';
@@ -49,7 +48,6 @@ export type AgendaStackParamList = {
 
 export type NotesStackParamList = {
   NotesList: { projectId?: string; boardId?: string; tagFilter?: string };
-  NoteDetail: { noteId: string };
   NoteEditor: {
     noteId?: string;
     projectIds?: string[];
@@ -126,7 +124,6 @@ function NotesStackNavigator() {
   return (
     <NotesStack.Navigator screenOptions={screenOptions}>
       <NotesStack.Screen name="NotesList" component={NotesListScreen} />
-      <NotesStack.Screen name="NoteDetail" component={NoteDetailScreen} />
       <NotesStack.Screen
         name="NoteEditor"
         component={NoteEditorScreen}

@@ -24,19 +24,21 @@ import { MarkdownNoteRepository } from "../infrastructure/storage/MarkdownNoteRe
 import { MarkdownAgendaRepository } from "../infrastructure/storage/MarkdownAgendaRepository";
 import { TimeTrackingService } from "../services/TimeTrackingService";
 import { YamlTimeLogRepository } from "../infrastructure/storage/YamlTimeLogRepository";
-import { FileWatcher } from "../infrastructure/daemon/FileWatcher";
-import { FileWatcherDaemon } from "../infrastructure/daemon/FileWatcherDaemon";
 import { StorageConfig } from "./StorageConfig";
 import { ActionsConfig, getActionsConfig } from "./ActionsConfig";
 import { YamlActionRepository } from "../infrastructure/repositories/YamlActionRepository";
 import { ActionService } from "../services/ActionService";
 import { NotificationService } from "../services/NotificationService";
 import { ActionEngine } from "../services/ActionEngine";
-import { ActionDaemon } from "../infrastructure/daemon/ActionDaemon";
 import { MissedActionsManager } from "../services/MissedActionsManager";
 import { GoogleCalendarRepository } from "../infrastructure/calendar/GoogleCalendarRepository";
 import { CalendarSyncService } from "../services/CalendarSyncService";
 import { registerBackgroundFileWatcherTask } from "../infrastructure/daemon/BackgroundFileWatcherTask";
+import { DaemonRunner } from "../infrastructure/daemon/DaemonRunner";
+import { FileChangeDetector } from "../infrastructure/daemon/FileChangeDetector";
+import { FileChangeMapper } from "../infrastructure/daemon/FileChangeMapper";
+import { AdaptivePollingStrategy, FixedPollingStrategy } from "../infrastructure/daemon/strategies";
+import { FileWatcherTask, ActionPollerTask, OrphanCleanerTask, EventListenerTask } from "../infrastructure/daemon/tasks";
 
 type Factory<T> = () => T;
 
@@ -88,6 +90,8 @@ export class DependencyContainer {
         const baseService = new BoardService(
           this.get(MarkdownBoardRepository),
           this.get(ValidationService),
+          () => this.get(ProjectService),
+          () => this.get(FileSystemManager),
         );
         return new CachedBoardService(baseService);
       },
@@ -115,6 +119,7 @@ export class DependencyContainer {
         const baseService = new ProjectService(
           this.get(MarkdownProjectRepository),
           this.get(ValidationService),
+          () => this.get(BoardService),
         );
         return new CachedProjectService(baseService);
       },
@@ -169,17 +174,43 @@ export class DependencyContainer {
       () => new TimeTrackingService(this.get(YamlTimeLogRepository)),
     );
 
-    // File watcher factory with FileSystemManager dependency
-    this.factories.set(
-      FileWatcher,
-      () => new FileWatcher(this.get(FileSystemManager)),
-    );
+    // Daemon Runner with all tasks
+    this.factories.set(DaemonRunner, () => {
+      const runner = new DaemonRunner();
 
-    // File watcher daemon factory with FileSystemManager dependency
-    this.factories.set(
-      FileWatcherDaemon,
-      () => new FileWatcherDaemon(this.get(FileSystemManager)),
-    );
+      const fsManager = this.get<FileSystemManager>(FileSystemManager);
+      const actionsConfig = this.get<ActionsConfig>(ActionsConfig);
+
+      const fileWatcherTask = new FileWatcherTask(
+        fsManager,
+        new FileChangeDetector(),
+        new AdaptivePollingStrategy(),
+        new FileChangeMapper(fsManager),
+      );
+      runner.registerTask(fileWatcherTask);
+
+      const actionPollerTask = new ActionPollerTask(
+        this.get(ActionEngine),
+        actionsConfig,
+        new FixedPollingStrategy(actionsConfig.getPollingInterval() * 1000),
+      );
+      runner.registerTask(actionPollerTask);
+
+      const orphanCleanerTask = new OrphanCleanerTask(
+        this.get(ActionService),
+        actionsConfig,
+        new FixedPollingStrategy(actionsConfig.getConfig().orphanCheckInterval * 1000),
+      );
+      runner.registerTask(orphanCleanerTask);
+
+      const eventListenerTask = new EventListenerTask(
+        this.get(ActionEngine),
+        actionsConfig,
+      );
+      runner.registerTask(eventListenerTask);
+
+      return runner;
+    });
 
     // Actions Config (singleton)
     this.factories.set(ActionsConfig, () => getActionsConfig());
@@ -237,16 +268,6 @@ export class DependencyContainer {
         ),
     );
 
-    // Action Daemon
-    this.factories.set(
-      ActionDaemon,
-      () =>
-        new ActionDaemon(
-          this.get(ActionEngine),
-          this.get(ActionService),
-          this.get(ActionsConfig),
-        ),
-    );
 
     // Google Calendar Repository
     this.factories.set(
@@ -337,20 +358,27 @@ export function getContainer(): DependencyContainer {
   return _container;
 }
 
-/**
- * Initialize the global container asynchronously
- * This should be called during app startup before rendering
- */
-export async function initializeContainer(): Promise<void> {
-  if (_initialized) {
-    return;
-  }
+export type InitializationProgressCallback = (step: string) => void;
 
+let _progressCallback: InitializationProgressCallback | null = null;
+
+export function setInitializationProgressCallback(callback: InitializationProgressCallback | null): void {
+  _progressCallback = callback;
+}
+
+async function initializeContainerInternal(): Promise<void> {
+  _progressCallback?.('Starting initialization...');
+  console.log('[DependencyContainer] Starting initialization...');
   const container = getContainer();
 
+  _progressCallback?.('Initializing file system...');
+  console.log('[DependencyContainer] Initializing FileSystemManager...');
   const fsManager = container.get<FileSystemManager>(FileSystemManager);
   await fsManager.initialize();
+  console.log('[DependencyContainer] FileSystemManager initialized');
 
+  _progressCallback?.('Loading storage configuration...');
+  console.log('[DependencyContainer] Loading storage config...');
   const storageConfig = container.get<StorageConfig>(StorageConfig);
   const boardsDir = await storageConfig.getBoardsDirectory();
   const defaultDir = storageConfig.getDefaultBoardsDirectory();
@@ -358,15 +386,75 @@ export async function initializeContainer(): Promise<void> {
   if (boardsDir !== defaultDir) {
     console.log("Custom boards directory loaded:", boardsDir);
   }
+  console.log('[DependencyContainer] Storage config loaded');
 
-  const fileWatcherDaemon = container.get<FileWatcherDaemon>(FileWatcherDaemon);
-  await fileWatcherDaemon.start();
+  _progressCallback?.('Loading actions configuration...');
+  console.log('[DependencyContainer] Loading actions config...');
+  const actionsConfig = container.get<ActionsConfig>(ActionsConfig);
+  await actionsConfig.initialize();
+  console.log('[DependencyContainer] Actions config loaded');
 
-  await registerBackgroundFileWatcherTask(async () => {
-    await fileWatcherDaemon.forceCheck();
-  });
+  _progressCallback?.('Starting daemon runner...');
+  console.log('[DependencyContainer] Starting DaemonRunner...');
+  const daemonRunner = container.get<DaemonRunner>(DaemonRunner);
+  try {
+    await daemonRunner.start();
+    console.log('[DependencyContainer] DaemonRunner started');
+  } catch (error) {
+    console.error('[DependencyContainer] DaemonRunner failed to start:', error);
+  }
+
+  _progressCallback?.('Registering background tasks...');
+  console.log('[DependencyContainer] Registering background task...');
+  const fileWatcherTask = daemonRunner.getTask<FileWatcherTask>('FileWatcher');
+  registerBackgroundFileWatcherTask(async () => {
+    if (fileWatcherTask) {
+      await fileWatcherTask.forceCheck();
+    }
+  })
+    .then(() => {
+      console.log('[DependencyContainer] Background task registered successfully');
+    })
+    .catch(error => {
+      console.error('[DependencyContainer] Background task registration failed:', error);
+    });
 
   _initialized = true;
+  _progressCallback?.('Initialization complete');
+  console.log('[DependencyContainer] Initialization complete');
+}
+
+/**
+ * Initialize the global container asynchronously with timeout protection
+ * This should be called during app startup before rendering
+ */
+export async function initializeContainer(): Promise<void> {
+  if (_initialized) {
+    console.log('[DependencyContainer] Already initialized');
+    return;
+  }
+
+  const TIMEOUT_MS = 30000;
+  let timeoutId: NodeJS.Timeout | null = null;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error('Initialization timed out after 30 seconds'));
+    }, TIMEOUT_MS);
+  });
+
+  try {
+    await Promise.race([
+      initializeContainerInternal(),
+      timeoutPromise,
+    ]);
+    if (timeoutId) clearTimeout(timeoutId);
+  } catch (error) {
+    if (timeoutId) clearTimeout(timeoutId);
+    _initialized = false;
+    console.error('[DependencyContainer] Initialization failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -430,10 +518,10 @@ export function getStorageRepository(): MarkdownStorageRepository {
 }
 
 /**
- * Get the file watcher
+ * Get the daemon runner
  */
-export function getFileWatcher(): FileWatcher {
-  return getContainer().get(FileWatcher);
+export function getDaemonRunner(): DaemonRunner {
+  return getContainer().get(DaemonRunner);
 }
 
 /**
@@ -490,13 +578,6 @@ export function getActionEngine(): ActionEngine {
  */
 export function getMissedActionsManager(): MissedActionsManager {
   return getContainer().get(MissedActionsManager);
-}
-
-/**
- * Get the action daemon
- */
-export function getActionDaemon(): ActionDaemon {
-  return getContainer().get(ActionDaemon);
 }
 
 /**
@@ -569,9 +650,3 @@ export function getCalendarSyncService(): CalendarSyncService {
   return getContainer().get(CalendarSyncService);
 }
 
-/**
- * Get the file watcher daemon
- */
-export function getFileWatcherDaemon(): FileWatcherDaemon {
-  return getContainer().get(FileWatcherDaemon);
-}

@@ -134,7 +134,7 @@ export default function ProjectDetailScreen() {
       CommonActions.navigate({
         name: "NotesTab",
         params: {
-          screen: "NoteDetail",
+          screen: "NoteEditor",
           params: { noteId: note.id },
         },
       }),

@@ -8,7 +8,7 @@ import {
   RefreshControl,
   TextInput,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Screen } from '../../components/Screen';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
@@ -78,16 +78,16 @@ export default function NotesListScreen() {
         try {
           const [type, id] = entityId.split('_');
           if (type === 'p') {
-            const project = await projectService.getProject(id);
+            const project = await projectService.getProjectById(id);
             if (project) names.set(entityId, project.name);
           } else if (type === 'b') {
-            const board = await boardService.getBoard(id);
+            const board = await boardService.getBoardById(id);
             if (board) names.set(entityId, board.name);
           } else if (type === 't') {
-            const task = await taskService.getTask(id);
-            if (task) names.set(entityId, task.title);
+            // const task = await taskService.getTask(id);
+            // if (task) names.set(entityId, task.title);
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       setEntityNames(names);
@@ -139,7 +139,7 @@ export default function NotesListScreen() {
   };
 
   const handleNotePress = (note: Note) => {
-    navigation.navigate('NoteDetail', { noteId: note.id });
+    navigation.navigate('NoteEditor', { noteId: note.id });
   };
 
   const formatDate = (date: Date): string => {
@@ -295,23 +295,17 @@ export default function NotesListScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <Screen hasTabBar>
         <Text style={styles.loadingText}>Loading notes...</Text>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <Screen hasTabBar>
       <View style={styles.screenHeader}>
         <AutoRefreshIndicator isRefreshing={isAutoRefreshing} />
         <View style={styles.headerLeft} />
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={handleCreateNote}
-        >
-          <Text style={styles.addButtonText}>+</Text>
-        </TouchableOpacity>
       </View>
 
       {renderFilters()}
@@ -334,12 +328,10 @@ export default function NotesListScreen() {
         contentContainerStyle={filteredNotes.length === 0 ? styles.emptyList : styles.list}
       />
 
-      {notes.length > 0 && (
-        <TouchableOpacity style={styles.fab} onPress={handleCreateDailyNote}>
-          <Text style={styles.fabText}>📅</Text>
-        </TouchableOpacity>
-      )}
-    </SafeAreaView>
+      <TouchableOpacity style={styles.fab} onPress={handleCreateNote}>
+        <Text style={styles.fabText}>+</Text>
+      </TouchableOpacity>
+    </Screen>
   );
 }
 

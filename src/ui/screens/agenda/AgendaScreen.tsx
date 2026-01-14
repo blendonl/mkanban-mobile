@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Screen } from '../../components/Screen';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
@@ -28,8 +28,12 @@ type AgendaScreenNavProp = StackNavigationProp<AgendaStackParamList, 'AgendaMain
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import uiConstants from '../../theme/uiConstants';
+
 export default function AgendaScreen() {
   const navigation = useNavigation<AgendaScreenNavProp>();
+  const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [weekStart, setWeekStart] = useState(getMonday(new Date()));
   const [weekData, setWeekData] = useState<Map<string, DayAgenda>>(new Map());
@@ -37,6 +41,8 @@ export default function AgendaScreen() {
   const [loading, setLoading] = useState(true);
   const [showFormModal, setShowFormModal] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+
+  const fabBottom = uiConstants.TAB_BAR_HEIGHT + uiConstants.TAB_BAR_BOTTOM_MARGIN + insets.bottom + 24;
 
   const loadWeekData = useCallback(async () => {
     try {
@@ -195,7 +201,7 @@ export default function AgendaScreen() {
       const project = projects.find(p => p.id === projectId);
       if (!project) return [];
 
-      const boards = await boardService.getAllBoards(project.slug);
+      const boards = await boardService.getBoardsByProject(project.id);
       return boards;
     } catch (error) {
       console.error('Failed to load boards:', error);
@@ -353,22 +359,22 @@ export default function AgendaScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <Screen hasTabBar>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.accent.primary} />
           <Text style={styles.loadingText}>Loading agenda...</Text>
         </View>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <Screen hasTabBar>
       {renderWeekHeader()}
       {renderDayContent()}
 
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { bottom: fabBottom }]}
         onPress={() => setShowFormModal(true)}
       >
         <Text style={styles.fabText}>+</Text>
@@ -382,7 +388,7 @@ export default function AgendaScreen() {
         onLoadBoards={handleLoadBoards}
         prefilledDate={formatDateKey(selectedDate)}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -565,7 +571,6 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: 24,
     right: 24,
     width: 56,
     height: 56,

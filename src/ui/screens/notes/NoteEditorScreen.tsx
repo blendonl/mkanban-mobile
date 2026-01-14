@@ -8,7 +8,9 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
+import { Screen } from '../../components/Screen';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
@@ -106,23 +108,23 @@ export default function NoteEditorScreen() {
 
       for (const projectId of selectedProjects) {
         try {
-          const project = await projectService.getProject(projectId);
+          const project = await projectService.getProjectById(projectId);
           if (project) newEntityNames.projects.set(projectId, project.name);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       for (const boardId of selectedBoards) {
         try {
-          const board = await boardService.getBoard(boardId);
+          const board = await boardService.getBoardById(boardId);
           if (board) newEntityNames.boards.set(boardId, board.name);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       for (const taskId of selectedTasks) {
         try {
-          const task = await taskService.getTask(taskId);
-          if (task) newEntityNames.tasks.set(taskId, task.title);
-        } catch (e) {}
+          // const task = await taskService.getTask(taskId);
+          // if (task) newEntityNames.tasks.set(taskId, task.title);
+        } catch (e) { }
       }
 
       setEntityNames(newEntityNames);
@@ -163,8 +165,42 @@ export default function NoteEditorScreen() {
           <Text style={styles.headerButtonText}>Close</Text>
         </TouchableOpacity>
       ),
+      headerRight: noteId ? () => (
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={handleDelete}
+        >
+          <Text style={[styles.headerButtonText, { color: theme.accent.error }]}>Delete</Text>
+        </TouchableOpacity>
+      ) : undefined,
     });
   }, [navigation, noteId]);
+
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Note',
+      'Are you sure you want to delete this note? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const noteService = getNoteService();
+              if (noteId) {
+                await noteService.deleteNote(noteId);
+              }
+              navigation.goBack();
+            } catch (error) {
+              console.error('Failed to delete note:', error);
+              Alert.alert('Error', 'Failed to delete note');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const saveNote = async () => {
     if (!title.trim()) return;
@@ -241,164 +277,168 @@ export default function NoteEditorScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
+      <Screen>
+        <View style={styles.container}>
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </Screen>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={88}
-    >
-      <AutoSaveIndicator status={saveStatus} />
+    <Screen style={styles.container} scrollable={false}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={88}
+      >
+        <AutoSaveIndicator status={saveStatus} />
 
-      <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled">
-        {!noteId && (
-          <View style={styles.typeSelector}>
-            <Text style={styles.sectionLabel}>Note Type</Text>
-            <View style={styles.typeButtons}>
-              {NOTE_TYPES.map(type => (
-                <TouchableOpacity
-                  key={type.value}
-                  style={[
-                    styles.typeButton,
-                    noteType === type.value && styles.typeButtonActive,
-                  ]}
-                  onPress={() => setNoteType(type.value)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.typeIcon}>{type.icon}</Text>
-                  <Text style={[
-                    styles.typeLabel,
-                    noteType === type.value && styles.typeLabelActive,
-                  ]}>
-                    {type.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-
-        <View style={styles.titleContainer}>
-          <TextInput
-            style={styles.titleInput}
-            placeholder="Untitled note"
-            placeholderTextColor={theme.text.muted}
-            value={title}
-            onChangeText={setTitle}
-            autoFocus={!noteId}
-          />
-        </View>
-
-        <View style={styles.entitiesSection}>
-          <Text style={styles.sectionLabel}>Connected To</Text>
-          <View style={styles.entityChipsContainer}>
-            {selectedProjects.map(id => (
-              <EntityChip
-                key={id}
-                entityType="project"
-                entityId={id}
-                entityName={entityNames.projects.get(id) || id}
-                onRemove={handleRemoveProject}
-              />
-            ))}
-            {selectedBoards.map(id => (
-              <EntityChip
-                key={id}
-                entityType="board"
-                entityId={id}
-                entityName={entityNames.boards.get(id) || id}
-                onRemove={handleRemoveBoard}
-              />
-            ))}
-            {selectedTasks.map(id => (
-              <EntityChip
-                key={id}
-                entityType="task"
-                entityId={id}
-                entityName={entityNames.tasks.get(id) || id}
-                onRemove={handleRemoveTask}
-              />
-            ))}
-            <TouchableOpacity
-              style={styles.addEntityButton}
-              onPress={() => setShowEntityPicker(true)}
-            >
-              <Text style={styles.addEntityButtonText}>+ Add</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.tagsSection}>
-          <Text style={styles.sectionLabel}>Tags</Text>
-          <View style={styles.tagsContainer}>
-            {tags.map(tag => (
-              <View key={tag} style={styles.tagChip}>
-                <Text style={styles.tagText}>#{tag}</Text>
-                <TouchableOpacity
-                  onPress={() => handleRemoveTag(tag)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.tagRemove}>×</Text>
-                </TouchableOpacity>
+        <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled">
+          {!noteId && (
+            <View style={styles.typeSelector}>
+              <Text style={styles.sectionLabel}>Note Type</Text>
+              <View style={styles.typeButtons}>
+                {NOTE_TYPES.map(type => (
+                  <TouchableOpacity
+                    key={type.value}
+                    style={[
+                      styles.typeButton,
+                      noteType === type.value && styles.typeButtonActive,
+                    ]}
+                    onPress={() => setNoteType(type.value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.typeIcon}>{type.icon}</Text>
+                    <Text style={[
+                      styles.typeLabel,
+                      noteType === type.value && styles.typeLabelActive,
+                    ]}>
+                      {type.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-            ))}
+            </View>
+          )}
+
+          <View style={styles.titleContainer}>
             <TextInput
-              style={styles.tagInput}
-              placeholder="Add tags..."
+              style={styles.titleInput}
+              placeholder="Untitled note"
               placeholderTextColor={theme.text.muted}
-              value={tagInput}
-              onChangeText={setTagInput}
-              onSubmitEditing={handleAddTag}
-              returnKeyType="done"
+              value={title}
+              onChangeText={setTitle}
+              autoFocus={!noteId}
             />
           </View>
-        </View>
 
-        <View style={styles.toolbar}>
-          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n## ')}>
-            <Text style={styles.toolButtonText}>H</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- ')}>
-            <Text style={styles.toolButtonText}>•</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- [ ] ')}>
-            <Text style={styles.toolButtonText}>☐</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n> ')}>
-            <Text style={styles.toolButtonText}>"</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.entitiesSection}>
+            <Text style={styles.sectionLabel}>Connected To</Text>
+            <View style={styles.entityChipsContainer}>
+              {selectedProjects.map(id => (
+                <EntityChip
+                  key={id}
+                  entityType="project"
+                  entityId={id}
+                  entityName={entityNames.projects.get(id) || id}
+                  onRemove={handleRemoveProject}
+                />
+              ))}
+              {selectedBoards.map(id => (
+                <EntityChip
+                  key={id}
+                  entityType="board"
+                  entityId={id}
+                  entityName={entityNames.boards.get(id) || id}
+                  onRemove={handleRemoveBoard}
+                />
+              ))}
+              {selectedTasks.map(id => (
+                <EntityChip
+                  key={id}
+                  entityType="task"
+                  entityId={id}
+                  entityName={entityNames.tasks.get(id) || id}
+                  onRemove={handleRemoveTask}
+                />
+              ))}
+              <TouchableOpacity
+                style={styles.addEntityButton}
+                onPress={() => setShowEntityPicker(true)}
+              >
+                <Text style={styles.addEntityButtonText}>+ Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
 
-        <View style={styles.editorContainer}>
-          <TextInput
-            style={styles.contentInput}
-            placeholder="Start writing your note..."
-            placeholderTextColor={theme.text.muted}
-            value={content}
-            onChangeText={setContent}
-            multiline
-            textAlignVertical="top"
-            scrollEnabled={false}
-          />
-        </View>
+          <View style={styles.tagsSection}>
+            <Text style={styles.sectionLabel}>Tags</Text>
+            <View style={styles.tagsContainer}>
+              {tags.map(tag => (
+                <View key={tag} style={styles.tagChip}>
+                  <Text style={styles.tagText}>#{tag}</Text>
+                  <TouchableOpacity
+                    onPress={() => handleRemoveTag(tag)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.tagRemove}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <TextInput
+                style={styles.tagInput}
+                placeholder="Add tags..."
+                placeholderTextColor={theme.text.muted}
+                value={tagInput}
+                onChangeText={setTagInput}
+                onSubmitEditing={handleAddTag}
+                returnKeyType="done"
+              />
+            </View>
+          </View>
 
-        <View style={styles.bottomPadding} />
-      </ScrollView>
+          <View style={styles.toolbar}>
+            <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n## ')}>
+              <Text style={styles.toolButtonText}>H</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- ')}>
+              <Text style={styles.toolButtonText}>•</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- [ ] ')}>
+              <Text style={styles.toolButtonText}>☐</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n> ')}>
+              <Text style={styles.toolButtonText}>"</Text>
+            </TouchableOpacity>
+          </View>
 
-      <EntityPicker
-        visible={showEntityPicker}
-        onClose={() => setShowEntityPicker(false)}
-        selectedProjects={selectedProjects}
-        selectedBoards={selectedBoards}
-        selectedTasks={selectedTasks}
-        onSelectionChange={handleEntitySelectionChange}
-      />
-    </KeyboardAvoidingView>
+          <View style={styles.editorContainer}>
+            <TextInput
+              style={styles.contentInput}
+              placeholder="Start writing your note..."
+              placeholderTextColor={theme.text.muted}
+              value={content}
+              onChangeText={setContent}
+              multiline
+              textAlignVertical="top"
+              scrollEnabled={false}
+            />
+          </View>
+
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+
+        <EntityPicker
+          visible={showEntityPicker}
+          onClose={() => setShowEntityPicker(false)}
+          selectedProjects={selectedProjects}
+          selectedBoards={selectedBoards}
+          selectedTasks={selectedTasks}
+          onSelectionChange={handleEntitySelectionChange}
+        />
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
 

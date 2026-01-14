@@ -5,31 +5,39 @@
 
 import { Board } from "../domain/entities/Board";
 import { Column } from "../domain/entities/Column";
+import { Task } from "../domain/entities/Task";
 import { BoardRepository } from "../domain/repositories/BoardRepository";
 import { ValidationService } from "./ValidationService";
 import { BoardId, ColumnId, ProjectId } from "../core/types";
 import { BoardNotFoundError, ValidationError } from "../core/exceptions";
 import { getEventBus } from "../core/EventBus";
-import { getContainer } from "../core/DependencyContainer";
 import { FileSystemManager } from "../infrastructure/storage/FileSystemManager";
 import { ProjectService } from "./ProjectService";
 
 export class BoardService {
   private repository: BoardRepository;
   private validator: ValidationService;
+  private getProjectService: () => ProjectService;
+  private getFileSystemManager: () => FileSystemManager;
 
-  constructor(repository: BoardRepository, validator: ValidationService) {
+  constructor(
+    repository: BoardRepository,
+    validator: ValidationService,
+    getProjectService: () => ProjectService,
+    getFileSystemManager: () => FileSystemManager,
+  ) {
     this.repository = repository;
     this.validator = validator;
+    this.getProjectService = getProjectService;
+    this.getFileSystemManager = getFileSystemManager;
   }
 
   /**
    * Get boards for a specific project
    */
   async getBoardsByProject(projectId: ProjectId): Promise<Board[]> {
-    const projectService = getContainer().get<ProjectService>(ProjectService);
-    const fileSystemManager =
-      getContainer().get<FileSystemManager>(FileSystemManager);
+    const projectService = this.getProjectService();
+    const fileSystemManager = this.getFileSystemManager();
 
     const project = await projectService.getProjectById(projectId);
     const projectBoardsDir = fileSystemManager.getProjectBoardsDirectory(
@@ -43,9 +51,8 @@ export class BoardService {
    * Get all boards from all projects
    */
   async getAllBoards(): Promise<Board[]> {
-    const projectService = getContainer().get<ProjectService>(ProjectService);
-    const fileSystemManager =
-      getContainer().get<FileSystemManager>(FileSystemManager);
+    const projectService = this.getProjectService();
+    const fileSystemManager = this.getFileSystemManager();
 
     const projects = await projectService.getAllProjects();
     const allBoards: Board[] = [];
@@ -104,7 +111,7 @@ export class BoardService {
     );
     this.validator.validateBoardName(name);
 
-    const projectService = getContainer().get<ProjectService>(ProjectService);
+    const projectService = this.getProjectService();
     const project = await projectService.getProjectById(projectId);
 
     const existingBoards = await this.getBoardsByProject(projectId);
@@ -145,7 +152,7 @@ export class BoardService {
     console.debug(`[BoardService] Saving board: ${board.name}`);
     this.validator.validateBoard(board);
 
-    const projectService = getContainer().get<ProjectService>(ProjectService);
+    const projectService = this.getProjectService();
     const project = await projectService.getProjectById(board.project_id);
 
     await this.repository.saveBoard(board, project.slug);
@@ -247,10 +254,29 @@ export class BoardService {
       return false;
     }
 
-    if (column.items.length > 0) {
+    if (column.tasks.length > 0) {
       throw new ValidationError("Cannot delete column that contains items");
     }
 
     return board.removeColumn(columnId);
+  }
+
+  /**
+   * Update a task in a board
+   */
+  async updateTask(boardId: BoardId, updatedTask: Task): Promise<void> {
+    const board = await this.getBoardById(boardId);
+
+    // Find the task in the board and replace/update it
+    for (const column of board.columns) {
+      const taskIndex = column.tasks.findIndex(t => t.id === updatedTask.id);
+      if (taskIndex !== -1) {
+        column.tasks[taskIndex] = updatedTask;
+        await this.saveBoard(board);
+        return;
+      }
+    }
+
+    throw new Error(`Task ${updatedTask.id} not found in board ${boardId}`);
   }
 }

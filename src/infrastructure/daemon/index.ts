@@ -1,6 +1,7 @@
-/**
- * Barrel export for daemon services
- */
-
+export * from './interfaces';
+export * from './strategies';
+export * from './tasks';
 export * from './FileChangeDetector';
-export * from './FileWatcher';
+export * from './FileChangeMapper';
+export * from './DaemonRunner';
+export * from './BackgroundFileWatcherTask';

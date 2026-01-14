@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Alert,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { StackNavigationProp } from "@react-navigation/stack";
 import { RouteProp } from "@react-navigation/native";
@@ -26,12 +26,14 @@ import ParentManagementModal from "../components/ParentManagementModal";
 import ParentFormModal from "../components/ParentFormModal";
 import ColumnFormModal from "../components/ColumnFormModal";
 import ColumnActionsModal from "../components/ColumnActionsModal";
+import AddColumnCard from "../components/AddColumnCard";
 import { Parent } from "../../domain/entities/Parent";
 import { ParentColor } from "../../core/enums";
 import { generateIdFromName, now } from "../../utils";
 import theme from "../theme";
 import alertService from "../../services/AlertService";
 import logger from "../../utils/logger";
+import uiConstants from "../theme/uiConstants";
 
 type BoardScreenNavigationProp = StackNavigationProp<
   RootStackParamList,
@@ -62,6 +64,7 @@ export default function BoardScreen({ navigation, route }: Props) {
   const boardService = getBoardService();
   const taskService = getTaskService();
   const boardId = route.params.boardId;
+  const insets = useSafeAreaInsets();
 
   // Load board on mount
   useEffect(() => {
@@ -427,6 +430,12 @@ export default function BoardScreen({ navigation, route }: Props) {
     return unsubscribe;
   }, [navigation, refreshBoard]);
 
+  const bottomPadding =
+    uiConstants.TAB_BAR_HEIGHT +
+    uiConstants.TAB_BAR_BOTTOM_MARGIN +
+    insets.bottom +
+    theme.spacing.lg;
+
   if (loading || !board) {
     return (
       <View style={styles.container}>
@@ -460,7 +469,10 @@ export default function BoardScreen({ navigation, route }: Props) {
         horizontal
         showsHorizontalScrollIndicator={true}
         indicatorStyle="white"
-        contentContainerStyle={styles.columnsContainer}
+        contentContainerStyle={[
+          styles.columnsContainer,
+          { paddingBottom: bottomPadding },
+        ]}
         snapToInterval={296}
         snapToAlignment="start"
         decelerationRate="fast"
@@ -477,6 +489,7 @@ export default function BoardScreen({ navigation, route }: Props) {
             onColumnMenu={handleColumnMenu}
           />
         ))}
+        <AddColumnCard onPress={handleCreateColumn} />
       </ScrollView>
 
       {/* Move to Column Modal */}
@@ -551,14 +564,6 @@ export default function BoardScreen({ navigation, route }: Props) {
         />
       )}
 
-      {/* Add Column FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={handleCreateColumn}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.fabText}>+ Column</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -609,13 +614,12 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: "absolute",
-    bottom: theme.spacing.xl,
     right: theme.spacing.xl,
     backgroundColor: theme.accent.primary,
-    borderRadius: theme.radius.round,
+    borderRadius: theme.radius.full,
     paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
-    ...theme.shadows.medium,
+    ...theme.shadows.md,
     elevation: 5,
   },
   fabText: {

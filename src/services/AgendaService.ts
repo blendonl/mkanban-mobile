@@ -39,7 +39,7 @@ export class AgendaService {
     private boardService: BoardService,
     private projectService: ProjectService,
     private agendaRepository: AgendaRepository
-  ) {}
+  ) { }
 
   async createAgendaItem(
     projectId: ProjectId,
@@ -432,5 +432,9 @@ export class AgendaService {
     }
 
     await this.boardService.updateTask(boardId, task);
+  }
+
+  async getAgendaItemById(id: string): Promise<AgendaItem | null> {
+    return this.agendaRepository.loadAgendaItemById(id);
   }
 }

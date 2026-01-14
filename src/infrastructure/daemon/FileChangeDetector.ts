@@ -1,26 +1,11 @@
-/**
- * FileChangeDetector.ts
- *
- * Detects changes in the file system by comparing file modification times.
- * Used by FileWatcher to track board/column/item changes.
- */
-
 import { File, Directory } from 'expo-file-system';
+import { IChangeDetector, FileState, FileChange } from './interfaces';
 
-export interface FileState {
-  path: string;
-  modifiedTime: number;
-  isDirectory: boolean;
-}
+export { FileState, FileChange };
 
-export interface FileChange {
-  path: string;
-  type: 'added' | 'modified' | 'deleted';
-  isDirectory: boolean;
-}
-
-export class FileChangeDetector {
+export class FileChangeDetector implements IChangeDetector {
   private previousState: Map<string, FileState> = new Map();
+  private visitedDirs: Set<string> = new Set();
 
   /**
    * Scan a directory and return current file states
@@ -29,14 +14,18 @@ export class FileChangeDetector {
     const fileStates = new Map<string, FileState>();
 
     try {
-      const dir = new Directory(dirPath);
+      const normalizedPath = this._ensureFileUri(dirPath);
+      const dir = new Directory(normalizedPath);
 
       if (!dir.exists) {
+        console.log(`[FileChangeDetector] Directory does not exist: ${dirPath}`);
         return fileStates;
       }
 
-      // Recursively scan directory
-      await this._scanRecursive(dirPath, fileStates);
+      this.visitedDirs.clear();
+      console.log(`[FileChangeDetector] Starting scan of: ${dirPath}`);
+      await this._scanRecursive(dir.uri, fileStates, 0);
+      console.log(`[FileChangeDetector] Scan complete. Found ${fileStates.size} items`);
     } catch (error) {
       console.error(`Error scanning directory ${dirPath}:`, error);
     }
@@ -44,44 +33,62 @@ export class FileChangeDetector {
     return fileStates;
   }
 
+  private async _yieldToMainThread(): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
   /**
    * Recursively scan directories and collect file states
    */
   private async _scanRecursive(
-    dirPath: string,
-    fileStates: Map<string, FileState>
+    dirUri: string,
+    fileStates: Map<string, FileState>,
+    depth: number
   ): Promise<void> {
+    if (depth > 20) {
+      console.warn(`[FileChangeDetector] Max depth reached at: ${dirUri}`);
+      return;
+    }
+
+    if (this.visitedDirs.has(dirUri)) {
+      console.warn(`[FileChangeDetector] Circular reference detected: ${dirUri}`);
+      return;
+    }
+
+    this.visitedDirs.add(dirUri);
+
     try {
-      const dir = new Directory(dirPath);
+      const dir = new Directory(dirUri);
       const items = dir.list();
 
-      for (const item of items) {
-        const itemPath = item.uri;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const itemUri = item.uri;
         const isDirectory = item instanceof Directory;
 
-        // Get modification time from file/directory
         let modifiedTime = 0;
         if (item instanceof File) {
           modifiedTime = item.modificationTime || 0;
         } else if (item instanceof Directory) {
-          // For directories, we can try to get info, but may not have modificationTime
-          // Use 0 as default for directories
           modifiedTime = 0;
         }
 
-        fileStates.set(itemPath, {
-          path: itemPath,
+        fileStates.set(itemUri, {
+          path: itemUri,
           modifiedTime,
           isDirectory,
         });
 
-        // Recursively scan subdirectories
         if (isDirectory) {
-          await this._scanRecursive(itemPath, fileStates);
+          await this._scanRecursive(itemUri, fileStates, depth + 1);
+        }
+
+        if (i > 0 && i % 100 === 0) {
+          await this._yieldToMainThread();
         }
       }
     } catch (error) {
-      console.error(`Error scanning directory ${dirPath}:`, error);
+      console.error(`Error scanning ${dirUri}:`, error);
     }
   }
 
@@ -138,6 +145,7 @@ export class FileChangeDetector {
    */
   reset(): void {
     this.previousState.clear();
+    this.visitedDirs.clear();
   }
 
   /**
@@ -145,5 +153,15 @@ export class FileChangeDetector {
    */
   getState(): Map<string, FileState> {
     return new Map(this.previousState);
+  }
+
+  private _ensureFileUri(path: string): string {
+    if (path.startsWith('file://')) {
+      return path;
+    }
+    if (path.startsWith('content://')) {
+      return path;
+    }
+    return `file://${path}`;
   }
 }

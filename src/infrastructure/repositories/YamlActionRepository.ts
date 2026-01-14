@@ -22,8 +22,10 @@ export class YamlActionRepository implements ActionRepository {
    * Initialize the repository (must be called after boards directory is set)
    */
   async initialize(): Promise<void> {
-    const dataDir = this.fileSystemManager.getDataDirectory();
-    this.actionsDir = `${dataDir}actions`;
+    // Use internal storage for actions to avoid permission issues on Android
+    const docDir = FileSystem.documentDirectory || '';
+    const baseDir = docDir.endsWith('/') ? docDir : `${docDir}/`;
+    this.actionsDir = `${baseDir}mkanban/actions`;
     await this.ensureDirectoryStructure();
   }
 

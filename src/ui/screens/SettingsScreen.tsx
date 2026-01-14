@@ -16,7 +16,7 @@ import {
   Modal,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Screen } from '../components/Screen';
 import { useNavigation } from '@react-navigation/native';
 import { FileSystemManager } from '../../infrastructure/storage/FileSystemManager';
 import { StorageConfig } from '../../core/StorageConfig';
@@ -511,17 +511,16 @@ export default function SettingsScreen() {
     Alert.alert(
       'About MKanban',
       `Version: ${APP_VERSION} (${APP_BUILD})\n\n` +
-        'MKanban is a mobile Kanban board application with markdown-based storage.\n\n' +
-        'Compatible with MKanban Desktop (Python TUI version)\n\n' +
-        'GitHub: https://github.com/yourusername/mkanban',
+      'MKanban is a mobile Kanban board application with markdown-based storage.\n\n' +
+      'Compatible with MKanban Desktop (Python TUI version)\n\n' +
+      'GitHub: https://github.com/yourusername/mkanban',
       [{ text: 'OK' }]
     );
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Storage Section */}
+    <Screen hasTabBar scrollable contentContainerStyle={styles.scrollContent}>
+      {/* Storage Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Storage</Text>
 
@@ -802,17 +801,16 @@ export default function SettingsScreen() {
         progress={migrationProgress}
       />
 
-      </ScrollView>
-
       <Toast
         visible={toastVisible}
         message={toastMessage}
         type={toastType}
         onHide={() => setToastVisible(false)}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

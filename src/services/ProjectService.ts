@@ -5,7 +5,7 @@ import { ProjectId } from '../core/types';
 import { ValidationError } from '../core/exceptions';
 import { getEventBus } from '../core/EventBus';
 import { Board } from '../domain/entities/Board';
-import { getContainer } from '../core/DependencyContainer';
+import { BoardService } from './BoardService';
 
 export class ProjectNotFoundError extends Error {
   constructor(message: string) {
@@ -17,10 +17,16 @@ export class ProjectNotFoundError extends Error {
 export class ProjectService {
   private repository: ProjectRepository;
   private validator: ValidationService;
+  private getBoardService: () => BoardService;
 
-  constructor(repository: ProjectRepository, validator: ValidationService) {
+  constructor(
+    repository: ProjectRepository,
+    validator: ValidationService,
+    getBoardService: () => BoardService,
+  ) {
     this.repository = repository;
     this.validator = validator;
+    this.getBoardService = getBoardService;
   }
 
   async getAllProjects(): Promise<Project[]> {
@@ -77,8 +83,7 @@ export class ProjectService {
   }
 
   private async createDefaultBoard(project: Project): Promise<void> {
-    const BoardService = (await import('./BoardService')).BoardService;
-    const boardService = getContainer().get<typeof BoardService.prototype>(BoardService as any);
+    const boardService = this.getBoardService();
 
     const board = new Board({
       name: 'default',

@@ -7,7 +7,7 @@ import {
   StyleSheet,
   RefreshControl,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Screen } from "../../components/Screen";
 import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import theme from "../../theme/colors";
@@ -162,14 +162,14 @@ export default function ProjectListScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <Screen hasTabBar>
         <Text style={styles.loadingText}>Loading projects...</Text>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <Screen hasTabBar>
       <FlatList
         data={projects}
         keyExtractor={(item) => item.id}
@@ -200,7 +200,7 @@ export default function ProjectListScreen() {
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreateProject}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
