@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  SectionList,
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
@@ -28,6 +29,7 @@ import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 type AgendaScreenNavProp = StackNavigationProp<AgendaStackParamList, 'AgendaMain'>;
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+type AgendaSection = { title: string; icon: AppIconName; data: ScheduledAgendaItem[] };
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import uiConstants from '../../theme/uiConstants';
@@ -46,13 +48,23 @@ export default function AgendaScreen() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+  const [lastRefreshTime, setLastRefreshTime] = useState(0);
 
+  const CACHE_FRESHNESS_MS = 30000;
   const fabBottom = uiConstants.TAB_BAR_HEIGHT + uiConstants.TAB_BAR_BOTTOM_MARGIN + insets.bottom + 24;
 
-  const loadWeekData = useCallback(async () => {
+  const loadWeekData = useCallback(async (priorityDate?: string) => {
     try {
       const agendaService = getAgendaService();
       const weekStartStr = weekStart.toISOString().split('T')[0];
+
+      if (priorityDate) {
+        console.log(`[AgendaScreen] Loading priority date: ${priorityDate}`);
+        const priorityAgenda = await agendaService.getAgendaForDate(priorityDate);
+        setWeekData(prev => new Map(prev).set(priorityDate, priorityAgenda));
+        setLoading(false);
+      }
+
       console.log(`[AgendaScreen] Loading week data starting from: ${weekStartStr}`);
       const data = await agendaService.getAgendaForWeek(weekStartStr);
       console.log(`[AgendaScreen] Loaded week data, map size: ${data.size}`);
@@ -81,11 +93,35 @@ export default function AgendaScreen() {
     }
   }, [monthAnchor]);
 
+  const loadSingleDay = useCallback(async (date: string) => {
+    try {
+      const agendaService = getAgendaService();
+      const dayAgenda = await agendaService.getAgendaForDate(date);
+
+      setWeekData(prev => {
+        const newMap = new Map(prev);
+        newMap.set(date, dayAgenda);
+        return newMap;
+      });
+
+      if (viewMode === 'month') {
+        setMonthData(prev => {
+          const newMap = new Map(prev);
+          newMap.set(date, dayAgenda);
+          return newMap;
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to reload day ${date}:`, error);
+    }
+  }, [viewMode]);
+
   const refreshAgendaData = useCallback(async () => {
     await loadWeekData();
     if (viewMode === 'month') {
       await loadMonthData();
     }
+    setLastRefreshTime(Date.now());
   }, [loadWeekData, loadMonthData, viewMode]);
 
   const loadProjects = async () => {
@@ -101,7 +137,8 @@ export default function AgendaScreen() {
   };
 
   useEffect(() => {
-    loadWeekData();
+    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    loadWeekData(selectedDateStr);
     loadProjects();
   }, [loadWeekData]);
 
@@ -115,8 +152,13 @@ export default function AgendaScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      refreshAgendaData();
-    }, [refreshAgendaData])
+      const now = Date.now();
+      const cacheAge = now - lastRefreshTime;
+
+      if (cacheAge > CACHE_FRESHNESS_MS) {
+        refreshAgendaData();
+      }
+    }, [refreshAgendaData, lastRefreshTime, CACHE_FRESHNESS_MS])
   );
 
   const onRefresh = useCallback(async () => {
@@ -146,7 +188,7 @@ export default function AgendaScreen() {
     setSelectedDate(today);
   };
 
-  const getWeekDays = (): Date[] => {
+  const weekDays = useMemo((): Date[] => {
     const days: Date[] = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(weekStart);
@@ -154,7 +196,19 @@ export default function AgendaScreen() {
       days.push(d);
     }
     return days;
-  };
+  }, [weekStart]);
+
+  const monthGridDays = useMemo((): Date[] => {
+    const start = getMonthStart(monthAnchor);
+    const gridStart = getMonday(start);
+    const days: Date[] = [];
+    for (let i = 0; i < 42; i++) {
+      const day = new Date(gridStart);
+      day.setDate(gridStart.getDate() + i);
+      days.push(day);
+    }
+    return days;
+  }, [monthAnchor]);
 
   const isToday = (date: Date): boolean => {
     const today = new Date();
@@ -174,13 +228,13 @@ export default function AgendaScreen() {
     return viewMode === 'month' ? monthData.get(dateKey) : weekData.get(dateKey);
   };
 
-  const handleAgendaItemPress = (scheduledItem: ScheduledAgendaItem) => {
+  const handleAgendaItemPress = useCallback((scheduledItem: ScheduledAgendaItem) => {
     navigation.navigate('AgendaItemDetail', {
       agendaItemId: scheduledItem.agendaItem.id,
     });
-  };
+  }, [navigation]);
 
-  const handleAgendaItemLongPress = (scheduledItem: ScheduledAgendaItem) => {
+  const handleAgendaItemLongPress = useCallback((scheduledItem: ScheduledAgendaItem) => {
     Alert.alert(
       scheduledItem.task?.title || 'Agenda Item',
       'Choose an action',
@@ -212,8 +266,9 @@ export default function AgendaScreen() {
                   onPress: async () => {
                     try {
                       const agendaService = getAgendaService();
+                      const itemDate = scheduledItem.agendaItem.scheduled_date;
                       await agendaService.deleteAgendaItem(scheduledItem.agendaItem);
-                      await loadWeekData();
+                      await loadSingleDay(itemDate);
                     } catch (error) {
                       console.error('Failed to delete agenda item:', error);
                       Alert.alert('Error', 'Failed to delete agenda item');
@@ -230,7 +285,24 @@ export default function AgendaScreen() {
         },
       ]
     );
-  };
+  }, [navigation, handleAgendaItemPress, loadSingleDay]);
+
+  const handleToggleComplete = useCallback(async (scheduledItem: ScheduledAgendaItem) => {
+    try {
+      const agendaService = getAgendaService();
+      const agendaItem = scheduledItem.agendaItem;
+      if (agendaItem.completed_at) {
+        agendaItem.markIncomplete();
+      } else {
+        agendaItem.markComplete();
+      }
+      await agendaService.updateAgendaItem(agendaItem);
+      await loadSingleDay(agendaItem.scheduled_date);
+    } catch (error) {
+      console.error('Failed to update agenda item status:', error);
+      Alert.alert('Error', 'Failed to update agenda item status');
+    }
+  }, [loadSingleDay]);
 
   const handleLoadBoards = async (projectId: string): Promise<Board[]> => {
     try {
@@ -282,9 +354,10 @@ export default function AgendaScreen() {
     setSelectedDate(new Date(next.getFullYear(), next.getMonth(), 1));
   };
 
-  const handleViewModeChange = (mode: 'week' | 'month') => {
-    setViewMode(mode);
-    if (mode === 'week') {
+  const handleViewModeToggle = () => {
+    const nextMode = viewMode === 'week' ? 'month' : 'week';
+    setViewMode(nextMode);
+    if (nextMode === 'week') {
       setWeekStart(getMonday(selectedDate));
     } else {
       setMonthAnchor(getMonthStart(selectedDate));
@@ -292,7 +365,6 @@ export default function AgendaScreen() {
   };
 
   const renderWeekHeader = () => {
-    const weekDays = getWeekDays();
     const monthYear = (viewMode === 'month' ? monthAnchor : selectedDate).toLocaleDateString('en-US', {
       month: 'long',
       year: 'numeric',
@@ -301,41 +373,24 @@ export default function AgendaScreen() {
     const goNext = viewMode === 'month' ? goToNextMonth : goToNextWeek;
 
     return (
-      <View style={styles.calendarHeader}>
-        <View style={styles.headerRow}>
+      <View style={styles.calendarCard}>
+        <View style={styles.calendarTopRow}>
           <TouchableOpacity onPress={goPrev} style={styles.navButton}>
             <AppIcon name="arrow-left" size={16} color={theme.text.secondary} />
           </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <View style={styles.monthRow}>
-              <TouchableOpacity onPress={goToToday}>
-                <Text style={styles.monthText}>{monthYear}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
-                <Text style={styles.todayButtonText}>Today</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.viewToggle}>
-              <TouchableOpacity
-                style={[styles.viewToggleButton, viewMode === 'week' && styles.viewToggleButtonActive]}
-                onPress={() => handleViewModeChange('week')}
-              >
-                <Text style={[styles.viewToggleText, viewMode === 'week' && styles.viewToggleTextActive]}>
-                  Week
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.viewToggleButton, viewMode === 'month' && styles.viewToggleButtonActive]}
-                onPress={() => handleViewModeChange('month')}
-              >
-                <Text style={[styles.viewToggleText, viewMode === 'month' && styles.viewToggleTextActive]}>
-                  Month
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <TouchableOpacity onPress={goToToday} style={styles.monthButton}>
+            <Text style={styles.monthText}>{monthYear}</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={goNext} style={styles.navButton}>
             <AppIcon name="arrow-right" size={16} color={theme.text.secondary} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.calendarControls}>
+          <TouchableOpacity onPress={handleViewModeToggle} style={styles.viewToggleButton}>
+            <AppIcon name="calendar" size={14} color={theme.text.secondary} />
+            <Text style={styles.viewToggleText}>
+              {viewMode === 'week' ? 'Week view' : 'Month view'}
+            </Text>
           </TouchableOpacity>
         </View>
         {viewMode === 'week' ? (
@@ -394,7 +449,7 @@ export default function AgendaScreen() {
               </View>
             ) : (
               <View style={styles.monthGrid}>
-                {getMonthGridDays(monthAnchor).map((date, index) => {
+                {monthGridDays.map((date, index) => {
                   const dateKey = formatDateKey(date);
                   const dayAgenda = monthData.get(dateKey);
                   const itemCount = dayAgenda?.items.length || 0;
@@ -447,29 +502,28 @@ export default function AgendaScreen() {
     );
   };
 
-  const renderDaySection = (title: string, items: ScheduledAgendaItem[], icon: AppIconName) => {
-    if (items.length === 0) return null;
+  const renderAgendaItem = useCallback(({ item }: { item: ScheduledAgendaItem }) => (
+    <AgendaItemCard
+      scheduledItem={item}
+      onPress={() => handleAgendaItemPress(item)}
+      onLongPress={() => handleAgendaItemLongPress(item)}
+      onToggleComplete={() => handleToggleComplete(item)}
+    />
+  ), [handleAgendaItemPress, handleAgendaItemLongPress, handleToggleComplete]);
 
-    return (
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIcon}>
-            <AppIcon name={icon} size={16} color={theme.text.secondary} />
-          </View>
-          <Text style={styles.sectionTitle}>{title}</Text>
-          <Text style={styles.sectionCount}>{items.length}</Text>
+  const renderSectionHeader = useCallback(({ section }: { section: AgendaSection }) => (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionTitleRow}>
+        <View style={styles.sectionIcon}>
+          <AppIcon name={section.icon} size={14} color={theme.text.secondary} />
         </View>
-        {items.map(item => (
-          <AgendaItemCard
-            key={item.agendaItem.id}
-            scheduledItem={item}
-            onPress={() => handleAgendaItemPress(item)}
-            onLongPress={() => handleAgendaItemLongPress(item)}
-          />
-        ))}
+        <Text style={styles.sectionTitle}>{section.title}</Text>
+        <View style={styles.sectionCountPill}>
+          <Text style={styles.sectionCountText}>{section.data.length}</Text>
+        </View>
       </View>
-    );
-  };
+    </View>
+  ), []);
 
   const renderDayContent = () => {
     const dayAgenda = getSelectedDayAgenda();
@@ -478,7 +532,6 @@ export default function AgendaScreen() {
       month: 'long',
       day: 'numeric',
     });
-    const itemCount = dayAgenda?.items.length || 0;
     const meetingCount = dayAgenda?.meetings.length || 0;
     const taskCount = dayAgenda?.regularTasks.length || 0;
     const milestoneCount = dayAgenda?.milestones.length || 0;
@@ -500,9 +553,29 @@ export default function AgendaScreen() {
       );
     }
 
+    const sections: AgendaSection[] = [
+      { title: 'Meetings', icon: 'users', data: dayAgenda.meetings },
+      { title: 'Tasks', icon: 'task', data: dayAgenda.regularTasks },
+      { title: 'Milestones', icon: 'milestone', data: dayAgenda.milestones },
+      { title: 'Orphaned Items', icon: 'alert', data: dayAgenda.orphanedItems },
+    ].filter(section => section.data.length > 0);
+
     return (
-      <ScrollView
-        style={styles.dayContent}
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => item.agendaItem.id}
+        renderItem={renderAgendaItem}
+        renderSectionHeader={renderSectionHeader}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
+        ListHeaderComponent={(
+          <View style={styles.dayHeader}>
+            <View style={styles.dayHeaderRow}>
+            </View>
+          </View>
+        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -510,55 +583,10 @@ export default function AgendaScreen() {
             tintColor={theme.accent.primary}
           />
         }
-      >
-        <View style={styles.dayHeader}>
-          <View style={styles.daySummaryCard}>
-            <View style={styles.daySummaryHeader}>
-              <View>
-                <Text style={styles.dayDateLabel}>{selectedDateStr}</Text>
-                <Text style={styles.daySummarySubtitle}>{itemCount} items scheduled</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.inlineScheduleButton}
-                onPress={() => setShowFormModal(true)}
-              >
-                <Text style={styles.inlineScheduleText}>Schedule</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.summaryChips}>
-              <View style={[styles.summaryChip, { borderColor: theme.accent.success, backgroundColor: `${theme.accent.success}22` }]}>
-                <View style={[styles.summaryDot, { backgroundColor: theme.accent.success }]} />
-                <Text style={styles.summaryChipText}>Meetings</Text>
-                <Text style={styles.summaryChipCount}>{meetingCount}</Text>
-              </View>
-              <View style={[styles.summaryChip, { borderColor: theme.accent.primary, backgroundColor: `${theme.accent.primary}22` }]}>
-                <View style={[styles.summaryDot, { backgroundColor: theme.accent.primary }]} />
-                <Text style={styles.summaryChipText}>Tasks</Text>
-                <Text style={styles.summaryChipCount}>{taskCount}</Text>
-              </View>
-              <View style={[styles.summaryChip, { borderColor: theme.accent.secondary, backgroundColor: `${theme.accent.secondary}22` }]}>
-                <View style={[styles.summaryDot, { backgroundColor: theme.accent.secondary }]} />
-                <Text style={styles.summaryChipText}>Milestones</Text>
-                <Text style={styles.summaryChipCount}>{milestoneCount}</Text>
-              </View>
-              {orphanedCount > 0 && (
-                <View style={[styles.summaryChip, { borderColor: theme.accent.warning, backgroundColor: `${theme.accent.warning}22` }]}>
-                  <View style={[styles.summaryDot, { backgroundColor: theme.accent.warning }]} />
-                  <Text style={styles.summaryChipText}>Orphaned</Text>
-                  <Text style={styles.summaryChipCount}>{orphanedCount}</Text>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-        {renderDaySection('Meetings', dayAgenda.meetings, 'users')}
-        {renderDaySection('Tasks', dayAgenda.regularTasks, 'task')}
-        {renderDaySection('Milestones', dayAgenda.milestones, 'milestone')}
-        {dayAgenda.orphanedItems.length > 0 && (
-          renderDaySection('Orphaned Items', dayAgenda.orphanedItems, 'alert')
-        )}
-        <View style={styles.bottomPadding} />
-      </ScrollView>
+        contentContainerStyle={styles.dayListContent}
+        stickySectionHeadersEnabled={false}
+        showsVerticalScrollIndicator={false}
+      />
     );
   };
 
@@ -640,18 +668,20 @@ const styles = StyleSheet.create({
     color: theme.text.secondary,
     marginTop: spacing.md,
   },
-  calendarHeader: {
+  calendarCard: {
     backgroundColor: theme.background.secondary,
-    paddingTop: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border.primary,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.border.primary,
+    paddingVertical: spacing.sm,
   },
-  headerRow: {
+  calendarTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   navButton: {
     width: 40,
@@ -659,83 +689,70 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  monthText: {
-    color: theme.text.primary,
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  monthRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.xs,
-  },
-  todayButton: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 12,
+  monthButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: theme.background.elevated,
     borderWidth: 1,
     borderColor: theme.border.secondary,
-    backgroundColor: theme.background.elevated,
   },
-  todayButtonText: {
-    fontSize: 12,
-    color: theme.text.secondary,
-    fontWeight: '600',
+  monthText: {
+    color: theme.text.primary,
+    fontSize: 16,
+    fontWeight: '700',
   },
-  viewToggle: {
+  calendarControls: {
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+  },
+  viewToggleButton: {
     flexDirection: 'row',
-    backgroundColor: theme.background.elevated,
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: theme.border.secondary,
-    padding: 2,
-  },
-  viewToggleButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  viewToggleButtonActive: {
-    backgroundColor: theme.accent.primary,
+    backgroundColor: theme.background.elevated,
   },
   viewToggleText: {
     fontSize: 12,
     color: theme.text.secondary,
     fontWeight: '600',
   },
-  viewToggleTextActive: {
-    color: theme.background.primary,
-  },
   daysRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: spacing.xs,
-    paddingBottom: spacing.sm,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
   },
   dayCell: {
     alignItems: 'center',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
-    borderRadius: 12,
+    borderRadius: 14,
     minWidth: 44,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
   },
   dayCellSelected: {
     backgroundColor: theme.accent.primary,
+    borderColor: theme.accent.primary,
   },
   dayCellToday: {
-    borderWidth: 1,
     borderColor: theme.accent.primary,
   },
   dayName: {
     color: theme.text.secondary,
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 11,
+    fontWeight: '600',
     marginBottom: spacing.xs,
+    textTransform: 'uppercase',
   },
   dayNameSelected: {
     color: theme.background.primary,
@@ -743,7 +760,7 @@ const styles = StyleSheet.create({
   dayNumber: {
     color: theme.text.primary,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   dayNumberSelected: {
     color: theme.background.primary,
@@ -756,18 +773,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 8,
-    backgroundColor: theme.background.elevated,
-    borderWidth: 1,
-    borderColor: theme.border.secondary,
+    backgroundColor: theme.background.primary,
   },
   dayCountSelected: {
     backgroundColor: theme.background.primary,
-    borderColor: theme.background.primary,
   },
   dayCountText: {
     fontSize: 10,
     color: theme.text.secondary,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   dayCountTextSelected: {
     color: theme.text.primary,
@@ -775,6 +789,7 @@ const styles = StyleSheet.create({
   monthGridContainer: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
+    paddingTop: spacing.sm,
   },
   monthWeekdayRow: {
     flexDirection: 'row',
@@ -801,7 +816,7 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   monthDayCellOutside: {
-    opacity: 0.45,
+    opacity: 0.4,
   },
   monthDayCellSelected: {
     backgroundColor: theme.accent.primary,
@@ -812,7 +827,7 @@ const styles = StyleSheet.create({
   },
   monthDayNumber: {
     color: theme.text.primary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   monthDayNumberOutside: {
@@ -853,101 +868,38 @@ const styles = StyleSheet.create({
     color: theme.text.secondary,
     fontSize: 12,
   },
-  dayContent: {
-    flex: 1,
+  dayListContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
   },
   dayHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
   },
-  daySummaryCard: {
-    flex: 1,
-    backgroundColor: theme.background.elevated,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border.secondary,
-    padding: spacing.md,
-  },
-  daySummaryHeader: {
+  dayHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  dayDateLabel: {
-    color: theme.text.primary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  daySummarySubtitle: {
-    color: theme.text.tertiary,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  inlineScheduleButton: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border.secondary,
-    backgroundColor: theme.background.primary,
-  },
-  inlineScheduleText: {
-    color: theme.text.secondary,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  summaryChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  summaryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 6,
-  },
-  summaryDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  summaryChipText: {
-    color: theme.text.secondary,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  summaryChipCount: {
-    color: theme.text.primary,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  section: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.md,
-    backgroundColor: theme.card.background,
-    borderRadius: 12,
-    marginHorizontal: spacing.md,
-    borderWidth: 1,
-    borderColor: theme.card.border,
-  },
   sectionHeader: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
+    gap: spacing.sm,
   },
   sectionIcon: {
-    marginRight: spacing.sm,
+    width: 22,
+    height: 22,
+    borderRadius: 8,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionTitle: {
     color: theme.text.secondary,
@@ -955,13 +907,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
   },
-  sectionCount: {
-    color: theme.text.muted,
-    fontSize: 12,
+  sectionCountPill: {
     backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: 12,
+  },
+  sectionCountText: {
+    color: theme.text.muted,
+    fontSize: 12,
+    fontWeight: '600',
   },
   emptyDay: {
     flex: 1,
@@ -990,9 +947,6 @@ const styles = StyleSheet.create({
     color: theme.background.primary,
     fontSize: 15,
     fontWeight: '600',
-  },
-  bottomPadding: {
-    height: 100,
   },
   fab: {
     position: 'absolute',

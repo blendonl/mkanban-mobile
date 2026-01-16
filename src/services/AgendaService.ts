@@ -3,9 +3,14 @@ import { AgendaItem } from '../domain/entities/AgendaItem';
 import { Board } from '../domain/entities/Board';
 import { BoardService } from './BoardService';
 import { ProjectService } from './ProjectService';
+import { TaskService } from './TaskService';
 import { AgendaRepository } from '../domain/repositories/AgendaRepository';
-import { TaskId, BoardId, ProjectId } from '../core/types';
+import { TaskId, BoardId, ProjectId, ColumnId } from '../core/types';
 import { TaskType, MeetingData } from '../domain/entities/Task';
+import { NotificationService } from './NotificationService';
+import { getOccurrencesForDate } from '../utils/recurrenceUtils';
+import { logger } from '../utils/logger';
+import { getEventBus, EventSubscription, FileChangeEventPayload } from '../core/EventBus';
 
 export interface ScheduledAgendaItem {
   agendaItem: AgendaItem;
@@ -34,12 +39,34 @@ export interface DayAgenda {
   tasks: ScheduledAgendaItem[];
 }
 
+interface RecurringTaskMetadata {
+  projectId: ProjectId;
+  boardId: BoardId;
+  taskId: TaskId;
+  recurrence: Task['recurrence'];
+  scheduledDate: string;
+  scheduledTime: string | null;
+  durationMinutes: number | null;
+  taskType: TaskType;
+  meetingData: MeetingData | null;
+  title: string;
+}
+
 export class AgendaService {
+  private recurringTasksCache: RecurringTaskMetadata[] | null = null;
+  private recurringTasksCacheTimestamp: number = 0;
+  private readonly RECURRING_TASKS_CACHE_TTL_MS = 5 * 60 * 1000;
+  private eventSubscriptions: EventSubscription[] = [];
+
   constructor(
     private boardService: BoardService,
     private projectService: ProjectService,
-    private agendaRepository: AgendaRepository
-  ) { }
+    private taskService: TaskService,
+    private agendaRepository: AgendaRepository,
+    private notificationService: NotificationService
+  ) {
+    this.subscribeToInvalidation();
+  }
 
   async createAgendaItem(
     projectId: ProjectId,
@@ -72,20 +99,19 @@ export class AgendaService {
   }
 
   async getAgendaForDate(date: string): Promise<DayAgenda> {
-    console.log(`[AgendaService] Loading agenda for date: ${date}`);
+    await this.ensureRecurringAgendaItemsForDate(date);
+    logger.debug(`[AgendaService] Loading agenda for date: ${date}`);
     const items = await this.agendaRepository.loadAgendaItemsForDate(date);
-    console.log(`[AgendaService] Found ${items.length} raw agenda items for ${date}`);
+    logger.debug(`[AgendaService] Found ${items.length} raw agenda items for ${date}`);
 
-    const scheduledItems = await Promise.all(
-      items.map(item => this.resolveAgendaItem(item))
-    );
-    console.log(`[AgendaService] Resolved ${scheduledItems.length} scheduled items`);
+    const scheduledItems = await this.resolveAgendaItems(items);
+    logger.debug(`[AgendaService] Resolved ${scheduledItems.length} scheduled items`);
 
     const regularTasks = scheduledItems.filter(si => si.agendaItem.task_type === 'regular');
     const meetings = scheduledItems.filter(si => si.agendaItem.task_type === 'meeting');
     const milestones = scheduledItems.filter(si => si.agendaItem.task_type === 'milestone');
 
-    console.log(`[AgendaService] Categorized: ${regularTasks.length} regular, ${meetings.length} meetings, ${milestones.length} milestones`);
+    logger.debug(`[AgendaService] Categorized: ${regularTasks.length} regular, ${meetings.length} meetings, ${milestones.length} milestones`);
 
     return {
       date,
@@ -110,17 +136,24 @@ export class AgendaService {
   }
 
   async getAgendaForDateRange(startDate: string, endDate: string): Promise<Map<string, DayAgenda>> {
-    const result = new Map<string, DayAgenda>();
+    const dates: string[] = [];
     const start = new Date(startDate);
     const end = new Date(endDate);
 
     const current = new Date(start);
     while (current <= end) {
-      const dateStr = current.toISOString().split('T')[0];
-      const dayAgenda = await this.getAgendaForDate(dateStr);
-      result.set(dateStr, dayAgenda);
+      dates.push(current.toISOString().split('T')[0]);
       current.setDate(current.getDate() + 1);
     }
+
+    const dayAgendas = await Promise.all(
+      dates.map(date => this.getAgendaForDate(date))
+    );
+
+    const result = new Map<string, DayAgenda>();
+    dayAgendas.forEach((dayAgenda, index) => {
+      result.set(dates[index], dayAgenda);
+    });
 
     return result;
   }
@@ -131,10 +164,27 @@ export class AgendaService {
   }
 
   async updateAgendaItem(item: AgendaItem): Promise<void> {
+    const existing = item.id
+      ? await this.agendaRepository.loadAgendaItemById(item.id)
+      : null;
+    const wasCompleted = !!existing?.completed_at;
+    const isCompleted = !!item.completed_at;
+
+    if (!wasCompleted && isCompleted) {
+      await this.moveLinkedTaskToDoneColumn(item);
+    }
+
+    if (item.completed_at && item.notification_id) {
+      await this.notificationService.cancelNotification(item.notification_id);
+      item.notification_id = null;
+    }
     await this.agendaRepository.saveAgendaItem(item);
   }
 
   async deleteAgendaItem(item: AgendaItem): Promise<boolean> {
+    if (item.notification_id) {
+      await this.notificationService.cancelNotification(item.notification_id);
+    }
     return await this.agendaRepository.deleteAgendaItem(item);
   }
 
@@ -143,16 +193,19 @@ export class AgendaService {
     newDate: string,
     newTime?: string
   ): Promise<AgendaItem> {
+    if (item.notification_id) {
+      await this.notificationService.cancelNotification(item.notification_id);
+      item.notification_id = null;
+    }
     item.reschedule(newDate, newTime);
     await this.agendaRepository.saveAgendaItem(item);
+    await this.maybeScheduleNotification(item, item.task_id);
     return item;
   }
 
   async getOrphanedAgendaItems(): Promise<ScheduledAgendaItem[]> {
     const orphanedItems = await this.agendaRepository.getOrphanedAgendaItems();
-    return await Promise.all(
-      orphanedItems.map(item => this.resolveAgendaItem(item))
-    );
+    return await this.resolveAgendaItems(orphanedItems);
   }
 
   async cleanupOrphanedItems(): Promise<number> {
@@ -178,9 +231,7 @@ export class AgendaService {
     const futureStr = future.toISOString().split('T')[0];
 
     const items = await this.agendaRepository.loadAgendaItemsForDateRange(todayStr, futureStr);
-    return await Promise.all(
-      items.map(item => this.resolveAgendaItem(item))
-    );
+    return await this.resolveAgendaItems(items);
   }
 
   async getOverdueAgendaItems(): Promise<ScheduledAgendaItem[]> {
@@ -191,9 +242,7 @@ export class AgendaService {
       return item.scheduled_date < today;
     });
 
-    const scheduled = await Promise.all(
-      overdueItems.map(item => this.resolveAgendaItem(item))
-    );
+    const scheduled = await this.resolveAgendaItems(overdueItems);
 
     return scheduled.filter(si => {
       if (si.isOrphaned) return false;
@@ -201,6 +250,68 @@ export class AgendaService {
       const normalizedColumnId = si.task.column_id.replace(/_/g, '-');
       return normalizedColumnId !== 'done';
     });
+  }
+
+  private async resolveAgendaItems(items: AgendaItem[]): Promise<ScheduledAgendaItem[]> {
+    if (items.length === 0) {
+      return [];
+    }
+
+    const boardIds = new Set(items.map(item => item.board_id));
+    const boards = await this.boardService.getBoardsByIds(boardIds);
+
+    const projectIds = new Set(items.map(item => item.project_id));
+    const projectNames = new Map<string, string>();
+    await Promise.all(
+      Array.from(projectIds).map(async (projectId) => {
+        const name = await this.getProjectName(projectId);
+        projectNames.set(projectId, name);
+      })
+    );
+
+    return items.map(item => this.resolveAgendaItemWithBoards(item, boards, projectNames));
+  }
+
+  private resolveAgendaItemWithBoards(
+    item: AgendaItem,
+    boards: Map<string, Board>,
+    projectNames: Map<string, string>
+  ): ScheduledAgendaItem {
+    const board = boards.get(item.board_id);
+    if (!board) {
+      return {
+        agendaItem: item,
+        task: null,
+        boardId: item.board_id,
+        boardName: 'Unknown Board',
+        projectName: projectNames.get(item.project_id) || 'Unknown Project',
+        columnName: null,
+        isOrphaned: true,
+      };
+    }
+
+    const { task, column } = this.findTaskInBoard(board, item.task_id);
+    if (!task) {
+      return {
+        agendaItem: item,
+        task: null,
+        boardId: item.board_id,
+        boardName: board.name,
+        projectName: projectNames.get(item.project_id) || 'Unknown Project',
+        columnName: null,
+        isOrphaned: true,
+      };
+    }
+
+    return {
+      agendaItem: item,
+      task,
+      boardId: board.id,
+      boardName: board.name,
+      projectName: projectNames.get(item.project_id) || 'Unknown Project',
+      columnName: column?.name || null,
+      isOrphaned: false,
+    };
   }
 
   private async resolveAgendaItem(item: AgendaItem): Promise<ScheduledAgendaItem> {
@@ -241,7 +352,7 @@ export class AgendaService {
         isOrphaned: false,
       };
     } catch (error) {
-      console.error(`Failed to resolve agenda item ${item.id}:`, error);
+      logger.error(`Failed to resolve agenda item ${item.id}:`, error);
       return {
         agendaItem: item,
         task: null,
@@ -263,14 +374,69 @@ export class AgendaService {
     }
   }
 
-  private findTaskInBoard(board: Board, taskId: TaskId): { task: Task | null; column: { name: string } | null } {
+  private findTaskInBoard(
+    board: Board,
+    taskId: TaskId
+  ): { task: Task | null; column: { id: ColumnId; name: string } | null } {
     for (const column of board.columns) {
       const task = column.tasks.find(t => t.id === taskId);
       if (task) {
-        return { task, column: { name: column.name } };
+        return { task, column: { id: column.id, name: column.name } };
       }
     }
     return { task: null, column: null };
+  }
+
+  private subscribeToInvalidation(): void {
+    const eventBus = getEventBus();
+    const fileChangedSub = eventBus.subscribe('file_changed', (payload: FileChangeEventPayload) => {
+      if (payload.entityType === 'board') {
+        this.invalidateRecurringTasksCache();
+      }
+    });
+    this.eventSubscriptions.push(fileChangedSub);
+  }
+
+  private invalidateRecurringTasksCache(): void {
+    this.recurringTasksCache = null;
+    this.recurringTasksCacheTimestamp = 0;
+  }
+
+  private async getCachedRecurringTasks(): Promise<RecurringTaskMetadata[]> {
+    const now = Date.now();
+    const cacheAge = now - this.recurringTasksCacheTimestamp;
+
+    if (this.recurringTasksCache && cacheAge < this.RECURRING_TASKS_CACHE_TTL_MS) {
+      return this.recurringTasksCache;
+    }
+
+    const boards = await this.boardService.getAllBoards();
+    const metadata: RecurringTaskMetadata[] = [];
+
+    for (const board of boards) {
+      for (const column of board.columns) {
+        const recurringTasks = column.tasks.filter(
+          task => task.recurrence && task.scheduled_date
+        );
+
+        metadata.push(...recurringTasks.map(task => ({
+          projectId: task.project_id!,
+          boardId: board.id,
+          taskId: task.id,
+          recurrence: task.recurrence,
+          scheduledDate: task.scheduled_date,
+          scheduledTime: task.scheduled_time || null,
+          durationMinutes: task.time_block_minutes || null,
+          taskType: task.task_type,
+          meetingData: task.meeting_data || null,
+          title: task.title,
+        })));
+      }
+    }
+
+    this.recurringTasksCache = metadata;
+    this.recurringTasksCacheTimestamp = now;
+    return metadata;
   }
 
   private getMonday(date: Date): Date {
@@ -282,12 +448,56 @@ export class AgendaService {
     return d;
   }
 
+  private normalizeColumnId(columnId: ColumnId): string {
+    return columnId.replace(/_/g, '-').toLowerCase();
+  }
+
+  private getDoneColumnId(board: Board): ColumnId | null {
+    for (const column of board.columns) {
+      const normalizedId = this.normalizeColumnId(column.id);
+      if (normalizedId === 'done' || column.name.trim().toLowerCase() === 'done') {
+        return column.id;
+      }
+    }
+    return null;
+  }
+
+  private async moveLinkedTaskToDoneColumn(item: AgendaItem): Promise<void> {
+    try {
+      const board = await this.boardService.getBoardById(item.board_id);
+      if (!board) {
+        return;
+      }
+
+      const { task, column } = this.findTaskInBoard(board, item.task_id);
+      if (!task || !column) {
+        return;
+      }
+
+      const doneColumnId = this.getDoneColumnId(board);
+      if (!doneColumnId) {
+        return;
+      }
+
+      const normalizedCurrent = this.normalizeColumnId(column.id);
+      const normalizedDone = this.normalizeColumnId(doneColumnId);
+      if (normalizedCurrent === normalizedDone) {
+        return;
+      }
+
+      await this.taskService.moveTaskBetweenColumns(board, item.task_id, doneColumnId);
+    } catch (error) {
+      logger.error(`[AgendaService] Failed to move task ${item.task_id} to done`, error);
+    }
+  }
+
   async scheduleTask(
     boardId: BoardId,
     taskId: TaskId,
     date: string,
     time?: string,
-    durationMinutes?: number
+    durationMinutes?: number,
+    recurrence?: Task['recurrence'] | null
   ): Promise<AgendaItem> {
     const board = await this.boardService.getBoardById(boardId);
     if (!board) {
@@ -300,37 +510,36 @@ export class AgendaService {
     }
 
     task.schedule(date, time, durationMinutes);
+    task.recurrence = recurrence || null;
 
-    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+    const existingAgendaItems = await this.agendaRepository.loadAgendaItemsByTask(
       task.project_id!,
       boardId,
       taskId
     );
 
-    let agendaItem: AgendaItem;
-    if (existingAgendaItem) {
-      existingAgendaItem.reschedule(date, time);
-      if (durationMinutes !== undefined) {
-        existingAgendaItem.updateDuration(durationMinutes);
-      }
-      agendaItem = existingAgendaItem;
-    } else {
-      agendaItem = new AgendaItem({
-        project_id: task.project_id!,
-        board_id: boardId,
-        task_id: taskId,
-        scheduled_date: date,
-        scheduled_time: time,
-        duration_minutes: durationMinutes,
-        task_type: task.task_type,
-        meeting_data: task.meeting_data,
-      });
+    for (const item of existingAgendaItems) {
+      await this.agendaRepository.deleteAgendaItem(item);
     }
+
+    const agendaItem = new AgendaItem({
+      project_id: task.project_id!,
+      board_id: boardId,
+      task_id: taskId,
+      scheduled_date: date,
+      scheduled_time: time,
+      duration_minutes: durationMinutes,
+      task_type: task.task_type,
+      meeting_data: task.meeting_data,
+      is_recurring: !!recurrence,
+    });
 
     await Promise.all([
       this.boardService.updateTask(boardId, task),
       this.agendaRepository.saveAgendaItem(agendaItem),
     ]);
+
+    await this.maybeScheduleNotification(agendaItem, task.title);
 
     return agendaItem;
   }
@@ -356,13 +565,13 @@ export class AgendaService {
       task.meeting_data = null;
     }
 
-    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+    const existingAgendaItems = await this.agendaRepository.loadAgendaItemsByTask(
       task.project_id!,
       boardId,
       taskId
     );
 
-    if (existingAgendaItem) {
+    for (const existingAgendaItem of existingAgendaItems) {
       existingAgendaItem.task_type = taskType;
       if (taskType !== 'meeting') {
         existingAgendaItem.meeting_data = null;
@@ -385,8 +594,9 @@ export class AgendaService {
     }
 
     task.unschedule();
+    task.recurrence = null;
 
-    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+    const existingAgendaItems = await this.agendaRepository.loadAgendaItemsByTask(
       task.project_id!,
       boardId,
       taskId
@@ -394,8 +604,11 @@ export class AgendaService {
 
     await this.boardService.updateTask(boardId, task);
 
-    if (existingAgendaItem) {
-      await this.agendaRepository.deleteAgendaItem(existingAgendaItem);
+    for (const item of existingAgendaItems) {
+      if (item.notification_id) {
+        await this.notificationService.cancelNotification(item.notification_id);
+      }
+      await this.agendaRepository.deleteAgendaItem(item);
     }
   }
 
@@ -420,13 +633,13 @@ export class AgendaService {
 
     task.meeting_data = meetingData;
 
-    const existingAgendaItem = await this.agendaRepository.loadAgendaItemByTask(
+    const existingAgendaItems = await this.agendaRepository.loadAgendaItemsByTask(
       task.project_id!,
       boardId,
       taskId
     );
 
-    if (existingAgendaItem) {
+    for (const existingAgendaItem of existingAgendaItems) {
       existingAgendaItem.meeting_data = meetingData;
       await this.agendaRepository.saveAgendaItem(existingAgendaItem);
     }
@@ -436,5 +649,101 @@ export class AgendaService {
 
   async getAgendaItemById(id: string): Promise<AgendaItem | null> {
     return this.agendaRepository.loadAgendaItemById(id);
+  }
+
+  async getAgendaItemsByTask(projectId: ProjectId, boardId: BoardId, taskId: TaskId): Promise<AgendaItem[]> {
+    return this.agendaRepository.loadAgendaItemsByTask(projectId, boardId, taskId);
+  }
+
+  async getTaskFromBoard(boardId: BoardId, taskId: TaskId): Promise<{ task: Task | null; projectId: ProjectId | null }> {
+    const board = await this.boardService.getBoardById(boardId);
+    if (!board) {
+      return { task: null, projectId: null };
+    }
+
+    for (const column of board.columns) {
+      const task = column.tasks.find(t => t.id === taskId);
+      if (task) {
+        return { task, projectId: board.project_id };
+      }
+    }
+
+    return { task: null, projectId: null };
+  }
+
+  private async ensureRecurringAgendaItemsForDate(date: string): Promise<void> {
+    const recurringTasks = await this.getCachedRecurringTasks();
+    const existingItems = await this.agendaRepository.loadAgendaItemsForDate(date);
+    const existingKeys = new Set(
+      existingItems.map(item => `${item.board_id}::${item.task_id}::${item.scheduled_time || ''}`)
+    );
+
+    for (const taskMetadata of recurringTasks) {
+      if (!taskMetadata.recurrence) {
+        continue;
+      }
+      if (taskMetadata.recurrence.endDate && date > taskMetadata.recurrence.endDate) {
+        continue;
+      }
+
+      const occurrences = getOccurrencesForDate(
+        date,
+        taskMetadata.recurrence,
+        taskMetadata.scheduledDate,
+        taskMetadata.scheduledTime
+      );
+
+      for (const occurrence of occurrences) {
+        const key = `${taskMetadata.boardId}::${taskMetadata.taskId}::${occurrence.time || ''}`;
+        if (existingKeys.has(key)) {
+          continue;
+        }
+
+        const agendaItem = new AgendaItem({
+          project_id: taskMetadata.projectId,
+          board_id: taskMetadata.boardId,
+          task_id: taskMetadata.taskId,
+          scheduled_date: date,
+          scheduled_time: occurrence.time,
+          duration_minutes: taskMetadata.durationMinutes,
+          task_type: taskMetadata.taskType,
+          meeting_data: taskMetadata.meetingData,
+          is_recurring: true,
+        });
+
+        await this.agendaRepository.saveAgendaItem(agendaItem);
+        await this.maybeScheduleNotification(agendaItem, taskMetadata.title);
+      }
+    }
+  }
+
+  private async maybeScheduleNotification(item: AgendaItem, title?: string): Promise<void> {
+    if (!item.scheduled_time) {
+      return;
+    }
+
+    const triggerTime = new Date(`${item.scheduled_date}T${item.scheduled_time}`);
+    if (triggerTime.getTime() <= Date.now()) {
+      return;
+    }
+
+    const handle = await this.notificationService.scheduleNotification(
+      {
+        title: 'Goal Reminder',
+        message: title || item.task_id,
+        data: { agendaItemId: item.id },
+      },
+      triggerTime
+    );
+
+    if (handle) {
+      item.notification_id = handle.id;
+      await this.agendaRepository.saveAgendaItem(item);
+    }
+  }
+
+  destroy(): void {
+    this.eventSubscriptions.forEach((sub) => sub.unsubscribe());
+    this.eventSubscriptions = [];
   }
 }

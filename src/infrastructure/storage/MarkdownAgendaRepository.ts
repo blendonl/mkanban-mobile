@@ -4,9 +4,16 @@ import { FileSystemManager } from "./FileSystemManager";
 import { AgendaRepository } from "../../domain/repositories/AgendaRepository";
 import { AgendaItem } from "../../domain/entities/AgendaItem";
 import { ProjectId, BoardId, TaskId } from "../../core/types";
+import { logger } from "../../utils/logger";
 
 export class MarkdownAgendaRepository implements AgendaRepository {
   private fileSystem: FileSystemManager;
+  private taskIndexCache: Map<string, Set<string>> | null = null;
+  private taskIndexTimestamp = 0;
+  private readonly TASK_INDEX_TTL = 5 * 60 * 1000;
+  private allItemsCache: AgendaItem[] | null = null;
+  private allItemsCacheTimestamp = 0;
+  private readonly ALL_ITEMS_CACHE_TTL = 5 * 60 * 1000;
 
   constructor(fileSystem: FileSystemManager) {
     this.fileSystem = fileSystem;
@@ -15,16 +22,16 @@ export class MarkdownAgendaRepository implements AgendaRepository {
   async loadAgendaItemsForDate(date: string): Promise<AgendaItem[]> {
     try {
       const dayDir = this.fileSystem.getAgendaDayDirectoryFromDate(date);
-      console.log(`[AgendaRepository] Checking directory: ${dayDir}`);
+      logger.debug(`[AgendaRepository] Checking directory: ${dayDir}`);
       const exists = await this.fileSystem.directoryExists(dayDir);
-      console.log(`[AgendaRepository] Directory exists: ${exists}`);
+      logger.debug(`[AgendaRepository] Directory exists: ${exists}`);
 
       if (!exists) {
         return [];
       }
 
       const files = await this.fileSystem.listFiles(dayDir, '*.md');
-      console.log(`[AgendaRepository] Found ${files.length} .md files in ${dayDir}`);
+      logger.debug(`[AgendaRepository] Found ${files.length} .md files in ${dayDir}`);
       const items: AgendaItem[] = [];
 
       for (const filePath of files) {
@@ -34,14 +41,14 @@ export class MarkdownAgendaRepository implements AgendaRepository {
         }
       }
 
-      console.log(`[AgendaRepository] Loaded ${items.length} agenda items for ${date}`);
+      logger.debug(`[AgendaRepository] Loaded ${items.length} agenda items for ${date}`);
       return items.sort((a, b) => {
         const timeA = a.scheduledDateTime?.getTime() || 0;
         const timeB = b.scheduledDateTime?.getTime() || 0;
         return timeA - timeB;
       });
     } catch (error) {
-      console.error(`Failed to load agenda items for date ${date}:`, error);
+      logger.error(`Failed to load agenda items for date ${date}:`, error);
       return [];
     }
   }
@@ -64,7 +71,7 @@ export class MarkdownAgendaRepository implements AgendaRepository {
         return timeA - timeB;
       });
     } catch (error) {
-      console.error(`Failed to load agenda items for date range ${startDate} to ${endDate}:`, error);
+      logger.error(`Failed to load agenda items for date range ${startDate} to ${endDate}:`, error);
       return [];
     }
   }
@@ -83,8 +90,27 @@ export class MarkdownAgendaRepository implements AgendaRepository {
           item.task_id === taskId
       ) || null;
     } catch (error) {
-      console.error(`Failed to load agenda item by task ${taskId}:`, error);
+      logger.error(`Failed to load agenda item by task ${taskId}:`, error);
       return null;
+    }
+  }
+
+  async loadAgendaItemsByTask(
+    projectId: ProjectId,
+    boardId: BoardId,
+    taskId: TaskId
+  ): Promise<AgendaItem[]> {
+    try {
+      const allItems = await this.loadAllAgendaItems();
+      return allItems.filter(
+        item =>
+          item.project_id === projectId &&
+          item.board_id === boardId &&
+          item.task_id === taskId
+      );
+    } catch (error) {
+      logger.error(`Failed to load agenda items by task ${taskId}:`, error);
+      return [];
     }
   }
 
@@ -93,13 +119,26 @@ export class MarkdownAgendaRepository implements AgendaRepository {
       const allItems = await this.loadAllAgendaItems();
       return allItems.find(item => item.id === agendaItemId) || null;
     } catch (error) {
-      console.error(`Failed to load agenda item by ID ${agendaItemId}:`, error);
+      logger.error(`Failed to load agenda item by ID ${agendaItemId}:`, error);
       return null;
     }
   }
 
   async loadAllAgendaItems(): Promise<AgendaItem[]> {
+    if (this.allItemsCache &&
+        (Date.now() - this.allItemsCacheTimestamp) < this.ALL_ITEMS_CACHE_TTL) {
+      return this.allItemsCache;
+    }
+
+    const items = await this.loadAllAgendaItemsUncached();
+    this.allItemsCache = items;
+    this.allItemsCacheTimestamp = Date.now();
+    return items;
+  }
+
+  private async loadAllAgendaItemsUncached(): Promise<AgendaItem[]> {
     try {
+      const BATCH_SIZE = 10;
       const agendaDir = this.fileSystem.getAgendaDirectory();
       const exists = await this.fileSystem.directoryExists(agendaDir);
 
@@ -107,25 +146,40 @@ export class MarkdownAgendaRepository implements AgendaRepository {
         return [];
       }
 
-      const allItems: AgendaItem[] = [];
       const yearDirs = await this.fileSystem.listDirectories(agendaDir);
+      const allItems: AgendaItem[] = [];
 
       for (const yearDir of yearDirs) {
         const monthDirs = await this.fileSystem.listDirectories(yearDir);
 
-        for (const monthDir of monthDirs) {
-          const dayDirs = await this.fileSystem.listDirectories(monthDir);
+        for (let i = 0; i < monthDirs.length; i += BATCH_SIZE) {
+          const monthBatch = monthDirs.slice(i, i + BATCH_SIZE);
+          const monthResults = await Promise.all(
+            monthBatch.map(async (monthDir) => {
+              const dayDirs = await this.fileSystem.listDirectories(monthDir);
+              const dayItems: AgendaItem[] = [];
 
-          for (const dayDir of dayDirs) {
-            const files = await this.fileSystem.listFiles(dayDir, '*.md');
+              for (const dayDir of dayDirs) {
+                const files = await this.fileSystem.listFiles(dayDir, '*.md');
 
-            for (const filePath of files) {
-              const item = await this.loadAgendaItemFromFile(filePath);
-              if (item) {
-                allItems.push(item);
+                for (let j = 0; j < files.length; j += BATCH_SIZE) {
+                  const fileBatch = files.slice(j, j + BATCH_SIZE);
+                  const fileResults = await Promise.all(
+                    fileBatch.map(async (filePath) => {
+                      const item = await this.loadAgendaItemFromFile(filePath);
+                      return item;
+                    })
+                  );
+
+                  dayItems.push(...fileResults.filter((item): item is AgendaItem => item !== null));
+                }
               }
-            }
-          }
+
+              return dayItems;
+            })
+          );
+
+          allItems.push(...monthResults.flat());
         }
       }
 
@@ -135,7 +189,7 @@ export class MarkdownAgendaRepository implements AgendaRepository {
         return timeA - timeB;
       });
     } catch (error) {
-      console.error('Failed to load all agenda items:', error);
+      logger.error('Failed to load all agenda items:', error);
       return [];
     }
   }
@@ -164,6 +218,7 @@ export class MarkdownAgendaRepository implements AgendaRepository {
       await this.fileSystem.writeFile(filePath, fullContent);
 
       item.file_path = filePath;
+      this.allItemsCache = null;
     } catch (error) {
       throw new Error(`Failed to save agenda item ${item.id}: ${error}`);
     }
@@ -174,12 +229,16 @@ export class MarkdownAgendaRepository implements AgendaRepository {
       if (!item.file_path) {
         const dayDir = this.fileSystem.getAgendaDayDirectoryFromDate(item.scheduled_date);
         const filePath = `${dayDir}${item.filename}`;
-        return await this.fileSystem.deleteFile(filePath);
+        const result = await this.fileSystem.deleteFile(filePath);
+        this.allItemsCache = null;
+        return result;
       }
 
-      return await this.fileSystem.deleteFile(item.file_path);
+      const result = await this.fileSystem.deleteFile(item.file_path);
+      this.allItemsCache = null;
+      return result;
     } catch (error) {
-      console.error(`Failed to delete agenda item ${item.id}:`, error);
+      logger.error(`Failed to delete agenda item ${item.id}:`, error);
       return false;
     }
   }
@@ -187,20 +246,88 @@ export class MarkdownAgendaRepository implements AgendaRepository {
   async getOrphanedAgendaItems(): Promise<AgendaItem[]> {
     try {
       const allItems = await this.loadAllAgendaItems();
-      const orphanedItems: AgendaItem[] = [];
+      const taskIndex = await this.getCachedTaskIndex();
 
-      for (const item of allItems) {
-        const isOrphaned = await this.isTaskOrphaned(item);
-        if (isOrphaned) {
-          orphanedItems.push(item);
+      const orphanedItems = allItems.filter(item => {
+        const boardTasks = taskIndex.get(item.board_id);
+        if (!boardTasks) {
+          return true;
         }
-      }
+        return !boardTasks.has(item.task_id);
+      });
 
       return orphanedItems;
     } catch (error) {
-      console.error('Failed to get orphaned agenda items:', error);
+      logger.error('Failed to get orphaned agenda items:', error);
       return [];
     }
+  }
+
+  private async getCachedTaskIndex(): Promise<Map<string, Set<string>>> {
+    if (this.taskIndexCache && (Date.now() - this.taskIndexTimestamp) < this.TASK_INDEX_TTL) {
+      logger.debug('[AgendaRepository] Using cached task index');
+      return this.taskIndexCache;
+    }
+
+    logger.debug('[AgendaRepository] Building fresh task index');
+    this.taskIndexCache = await this.buildTaskIndex();
+    this.taskIndexTimestamp = Date.now();
+    return this.taskIndexCache;
+  }
+
+  private async buildTaskIndex(): Promise<Map<string, Set<string>>> {
+    const taskIndex = new Map<string, Set<string>>();
+
+    try {
+      const projectService = (await import('../../../core/DependencyContainer')).getProjectService();
+      const projects = await projectService.getAllProjects();
+
+      await Promise.all(
+        projects.map(async (project) => {
+          const boardsDir = this.fileSystem.getProjectBoardsDirectory(project.slug);
+          const boardDirs = await this.fileSystem.listDirectories(boardsDir);
+
+          await Promise.all(
+            boardDirs.map(async (boardDir) => {
+              const boardId = boardDir.split('/').filter(Boolean).pop() || '';
+              const columnsDir = `${boardDir}columns/`;
+
+              try {
+                const columnDirs = await this.fileSystem.listDirectories(columnsDir);
+                const taskIds = new Set<string>();
+
+                const allTaskIds = await Promise.all(
+                  columnDirs.map(async (columnDir) => {
+                    const taskFiles = await this.fileSystem.listFiles(columnDir, '*.md');
+                    const ids = await Promise.all(
+                      taskFiles.map(async (taskFile) => {
+                        try {
+                          const taskContent = await this.fileSystem.readFile(taskFile);
+                          const taskParsed = matter(taskContent);
+                          return taskParsed.data.id as string;
+                        } catch {
+                          return null;
+                        }
+                      })
+                    );
+                    return ids.filter((id): id is string => id !== null);
+                  })
+                );
+
+                allTaskIds.flat().forEach(id => taskIds.add(id));
+                taskIndex.set(boardId, taskIds);
+              } catch (error) {
+                console.warn(`Failed to build task index for board ${boardId}:`, error);
+              }
+            })
+          );
+        })
+      );
+    } catch (error) {
+      logger.error('Failed to build task index:', error);
+    }
+
+    return taskIndex;
   }
 
   private async loadAgendaItemFromFile(filePath: string): Promise<AgendaItem | null> {
@@ -226,7 +353,7 @@ export class MarkdownAgendaRepository implements AgendaRepository {
 
       return AgendaItem.fromDict(data);
     } catch (error) {
-      console.error(`Failed to parse agenda item from ${filePath}:`, error);
+      logger.error(`Failed to parse agenda item from ${filePath}:`, error);
       return null;
     }
   }
@@ -258,7 +385,7 @@ export class MarkdownAgendaRepository implements AgendaRepository {
 
       return true;
     } catch (error) {
-      console.error(`Failed to check if task is orphaned for agenda item ${item.id}:`, error);
+      logger.error(`Failed to check if task is orphaned for agenda item ${item.id}:`, error);
       return true;
     }
   }

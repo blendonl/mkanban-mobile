@@ -5,6 +5,7 @@ import { getCacheManager } from '../infrastructure/cache/CacheManager';
 import { EntityCache } from '../infrastructure/cache/EntityCache';
 import { getEventBus, EventSubscription, FileChangeEventPayload } from '../core/EventBus';
 import { Column } from '../domain/entities/Column';
+import { Task } from '../domain/entities/Task';
 
 export class CachedBoardService {
   private cache: EntityCache<Board>;
@@ -66,13 +67,14 @@ export class CachedBoardService {
 
   async createBoardInProject(projectId: ProjectId, name: string, description?: string): Promise<Board> {
     const board = await this.baseService.createBoardInProject(projectId, name, description);
-    this.invalidateCache();
+    this.listCache.delete(projectId);
     return board;
   }
 
   async saveBoard(board: Board): Promise<void> {
     await this.baseService.saveBoard(board);
-    this.invalidateCache();
+    this.cache.invalidate(board.id);
+    this.listCache.delete(board.project_id);
   }
 
   async canDeleteBoard(boardId: BoardId): Promise<boolean> {
@@ -80,21 +82,60 @@ export class CachedBoardService {
   }
 
   async deleteBoard(boardId: BoardId): Promise<boolean> {
+    const board = await this.baseService.getBoardById(boardId);
     const result = await this.baseService.deleteBoard(boardId);
-    this.invalidateCache();
+    this.cache.invalidate(boardId);
+    if (board) {
+      this.listCache.delete(board.project_id);
+    }
     return result;
   }
 
   async addColumnToBoard(board: Board, columnName: string, position?: number | null): Promise<Column> {
     const column = await this.baseService.addColumnToBoard(board, columnName, position);
-    this.invalidateCache();
+    this.cache.invalidate(board.id);
+    this.listCache.delete(board.project_id);
     return column;
   }
 
   async removeColumnFromBoard(board: Board, columnId: ColumnId): Promise<boolean> {
     const result = await this.baseService.removeColumnFromBoard(board, columnId);
-    this.invalidateCache();
+    this.cache.invalidate(board.id);
+    this.listCache.delete(board.project_id);
     return result;
+  }
+
+  async getBoardsByIds(boardIds: Set<BoardId>): Promise<Map<BoardId, Board>> {
+    const boards = new Map<BoardId, Board>();
+    const uncachedIds = new Set<BoardId>();
+
+    for (const boardId of boardIds) {
+      const cached = this.cache.get(boardId);
+      if (cached) {
+        boards.set(boardId, cached);
+      } else {
+        uncachedIds.add(boardId);
+      }
+    }
+
+    if (uncachedIds.size > 0) {
+      const fetchedBoards = await this.baseService.getBoardsByIds(uncachedIds);
+      for (const [boardId, board] of fetchedBoards) {
+        this.cache.set(boardId, board);
+        boards.set(boardId, board);
+      }
+    }
+
+    return boards;
+  }
+
+  async updateTask(boardId: BoardId, updatedTask: Task): Promise<void> {
+    await this.baseService.updateTask(boardId, updatedTask);
+    this.cache.invalidate(boardId);
+    const board = await this.baseService.getBoardById(boardId);
+    if (board) {
+      this.listCache.delete(board.project_id);
+    }
   }
 
   destroy(): void {

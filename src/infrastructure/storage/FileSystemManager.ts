@@ -9,6 +9,7 @@ import { Platform } from "react-native";
 import { getSafeFilename } from "../../utils/stringUtils";
 import { FileSystemObserver } from "../../core/FileSystemObserver";
 import { getDefaultExternalDataPath, getDefaultExternalBoardsPath, hasExternalStorageAccess, StoragePermission } from "./StoragePermission";
+import { logger } from "../../utils/logger";
 
 export type NoteType = 'general' | 'meetings' | 'daily';
 
@@ -26,65 +27,65 @@ export class FileSystemManager {
 
   async initialize(): Promise<void> {
     if (this.initialized) {
-      console.log('[FileSystemManager] Already initialized');
+      logger.debug('[FileSystemManager] Already initialized');
       return;
     }
 
-    console.log('[FileSystemManager] Starting initialization...');
+    logger.debug('[FileSystemManager] Starting initialization...');
 
     if (Platform.OS === 'android') {
-      console.log('[FileSystemManager] Android detected, checking external storage...');
-      
+      logger.debug('[FileSystemManager] Android detected, checking external storage...');
+
       try {
         const hasAccess = await hasExternalStorageAccess();
-        console.log('[FileSystemManager] External storage access:', hasAccess);
-        
+        logger.debug('[FileSystemManager] External storage access:', hasAccess);
+
         if (hasAccess) {
           const externalDataPath = await getDefaultExternalDataPath();
-          console.log('[FileSystemManager] External data path:', externalDataPath);
-          
+          logger.debug('[FileSystemManager] External data path:', externalDataPath);
+
           if (externalDataPath) {
             const normalizedPath = externalDataPath.endsWith('/') ? externalDataPath.slice(0, -1) : externalDataPath;
-            console.log('[FileSystemManager] Creating external directories...');
+            logger.debug('[FileSystemManager] Creating external directories...');
 
             const dataCreated = await StoragePermission.createDirectory(normalizedPath);
-            console.log('[FileSystemManager] Data directory created:', dataCreated);
-            
+            logger.debug('[FileSystemManager] Data directory created:', dataCreated);
+
             const boardsPath = `${normalizedPath}/boards`;
             const boardsCreated = await StoragePermission.createDirectory(boardsPath);
-            console.log('[FileSystemManager] Boards directory created:', boardsCreated);
+            logger.debug('[FileSystemManager] Boards directory created:', boardsCreated);
 
             if (dataCreated && boardsCreated) {
               this.baseDirectory = normalizedPath;
               this.usingExternalStorage = true;
-              console.log('[FileSystemManager] Using external storage:', this.baseDirectory);
+              logger.debug('[FileSystemManager] Using external storage:', this.baseDirectory);
             } else {
-              console.log('[FileSystemManager] Failed to create external storage directories, falling back to internal storage');
+              logger.debug('[FileSystemManager] Failed to create external storage directories, falling back to internal storage');
             }
           } else {
-            console.log('[FileSystemManager] No external data path available, using internal storage');
+            logger.debug('[FileSystemManager] No external data path available, using internal storage');
           }
         } else {
-          console.log('[FileSystemManager] External storage not accessible, using internal storage');
+          logger.debug('[FileSystemManager] External storage not accessible, using internal storage');
         }
       } catch (error) {
-        console.error('[FileSystemManager] Error checking external storage, falling back to internal:', error);
+        logger.error('[FileSystemManager] Error checking external storage, falling back to internal:', error);
       }
     }
 
     if (!this.usingExternalStorage) {
-      console.log('[FileSystemManager] Setting up internal storage...');
+      logger.debug('[FileSystemManager] Setting up internal storage...');
       try {
         await this.ensureDirectoryExists(this.getDataDirectory());
-        console.log('[FileSystemManager] Internal storage directory created:', this.getDataDirectory());
+        logger.debug('[FileSystemManager] Internal storage directory created:', this.getDataDirectory());
       } catch (error) {
-        console.error('[FileSystemManager] Failed to create internal storage directory:', error);
+        logger.error('[FileSystemManager] Failed to create internal storage directory:', error);
         throw new Error(`Failed to initialize file system: ${error}`);
       }
     }
 
     this.initialized = true;
-    console.log('[FileSystemManager] Initialization complete');
+    logger.debug('[FileSystemManager] Initialization complete');
   }
 
   isInitialized(): boolean {
@@ -142,6 +143,10 @@ export class FileSystemManager {
     return `${this.getDataDirectory()}global/`;
   }
 
+  getGoalsDirectory(): string {
+    return `${this.getGlobalDirectory()}goals/`;
+  }
+
   getGlobalNotesDirectory(noteType?: NoteType): string {
     const notesDir = `${this.getGlobalDirectory()}notes/`;
     if (noteType) {
@@ -195,7 +200,7 @@ export class FileSystemManager {
 
       return projects;
     } catch (error) {
-      console.error(`Failed to list projects:`, error);
+      logger.error(`Failed to list projects:`, error);
       return [];
     }
   }
@@ -294,7 +299,7 @@ export class FileSystemManager {
       }
       return false;
     } catch (error) {
-      console.error(`Failed to delete file ${path}:`, error);
+      logger.error(`Failed to delete file ${path}:`, error);
       return false;
     }
   }
@@ -318,7 +323,7 @@ export class FileSystemManager {
       await FileSystem.moveAsync({ from: oldPath, to: newPath });
       return true;
     } catch (error) {
-      console.error(`Failed to rename file ${oldPath} to ${newPath}:`, error);
+      logger.error(`Failed to rename file ${oldPath} to ${newPath}:`, error);
       return false;
     }
   }
@@ -332,7 +337,7 @@ export class FileSystemManager {
       }
       return false;
     } catch (error) {
-      console.error(`Failed to delete directory ${path}:`, error);
+      logger.error(`Failed to delete directory ${path}:`, error);
       return false;
     }
   }
@@ -364,24 +369,26 @@ export class FileSystemManager {
       }
 
       const items = await FileSystem.readDirectoryAsync(directory);
-      const files: string[] = [];
+      const regexPattern = pattern ? this.globToRegex(pattern) : null;
 
-      for (const name of items) {
-        const fullPath = `${normalizedDir}${name}`;
-        const itemInfo = await FileSystem.getInfoAsync(fullPath);
-        if (itemInfo.exists && !itemInfo.isDirectory) {
-          if (!pattern) {
-            files.push(fullPath);
-          } else {
-            const regexPattern = this.globToRegex(pattern);
-            if (regexPattern.test(name)) {
-              files.push(fullPath);
-            }
+      const filteredItems = items
+        .filter(name => !name.startsWith('.'))
+        .filter(name => !regexPattern || regexPattern.test(name));
+
+      const fileChecks = await Promise.all(
+        filteredItems.map(async (name) => {
+          const fullPath = `${normalizedDir}${name}`;
+          const itemInfo = await FileSystem.getInfoAsync(fullPath);
+
+          if (itemInfo.exists && !itemInfo.isDirectory) {
+            return fullPath;
           }
-        }
-      }
 
-      return files;
+          return null;
+        })
+      );
+
+      return fileChecks.filter((path): path is string => path !== null);
     } catch (error) {
       throw new Error(`Failed to list files in ${directory}: ${error}`);
     }
@@ -404,17 +411,16 @@ export class FileSystemManager {
       }
 
       const items = await FileSystem.readDirectoryAsync(directory);
-      const directories: string[] = [];
 
-      for (const name of items) {
-        const fullPath = `${normalizedDir}${name}`;
-        const itemInfo = await FileSystem.getInfoAsync(fullPath);
-        if (itemInfo.exists && itemInfo.isDirectory) {
-          directories.push(`${fullPath}/`);
-        }
-      }
+      const dirChecks = await Promise.all(
+        items.map(async (name) => {
+          const fullPath = `${normalizedDir}${name}`;
+          const itemInfo = await FileSystem.getInfoAsync(fullPath);
+          return itemInfo.exists && itemInfo.isDirectory ? `${fullPath}/` : null;
+        })
+      );
 
-      return directories;
+      return dirChecks.filter((path): path is string => path !== null);
     } catch (error) {
       throw new Error(`Failed to list directories in ${directory}: ${error}`);
     }
@@ -460,7 +466,7 @@ export class FileSystemManager {
 
       return true;
     } catch (error) {
-      console.error(`Directory ${path} is not writable:`, error);
+      logger.error(`Directory ${path} is not writable:`, error);
       return false;
     }
   }
@@ -486,7 +492,7 @@ export class FileSystemManager {
 
       return boards;
     } catch (error) {
-      console.error(`Failed to list boards in ${boardsDirectory}:`, error);
+      logger.error(`Failed to list boards in ${boardsDirectory}:`, error);
       return [];
     }
   }
@@ -509,7 +515,7 @@ export class FileSystemManager {
 
       const info = await FileSystem.getInfoAsync(sourcePath);
       if (!info.exists) {
-        console.error(`Source file does not exist: ${sourcePath}`);
+        logger.error(`Source file does not exist: ${sourcePath}`);
         return false;
       }
 
@@ -520,7 +526,7 @@ export class FileSystemManager {
 
       return true;
     } catch (error) {
-      console.error(`Failed to copy file from ${sourcePath} to ${destPath}:`, error);
+      logger.error(`Failed to copy file from ${sourcePath} to ${destPath}:`, error);
       return false;
     }
   }
@@ -650,7 +656,7 @@ export class FileSystemManager {
       try {
         observer.onBoardsDirectoryChanged(newPath);
       } catch (error) {
-        console.error('Error notifying observer of boards directory change:', error);
+        logger.error('Error notifying observer of boards directory change:', error);
       }
     });
   }
