@@ -16,14 +16,15 @@ import { getTimeTrackingService } from '../../../core/DependencyContainer';
 import { DailySummary } from '../../../domain/entities/TimeLog';
 import { OverallTimeSummary, TimeSource } from '../../../services/TimeTrackingService';
 import { TimeStackParamList } from '../../navigation/TabNavigator';
+import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 
 type TimeOverviewNavProp = StackNavigationProp<TimeStackParamList, 'TimeOverview'>;
 
-const SOURCE_ICONS: Record<TimeSource, string> = {
-  manual: '✍️',
-  git: '📦',
-  tmux: '💻',
-  calendar: '📅',
+const SOURCE_ICONS: Record<TimeSource, AppIconName> = {
+  manual: 'edit',
+  git: 'box',
+  tmux: 'terminal',
+  calendar: 'calendar',
 };
 
 const SOURCE_LABELS: Record<TimeSource, string> = {
@@ -174,7 +175,13 @@ export default function TimeOverviewScreen() {
             return (
               <View key={source} style={styles.sourceRow}>
                 <View style={styles.sourceInfo}>
-                  <Text style={styles.sourceIcon}>{SOURCE_ICONS[typedSource]}</Text>
+                  <View style={styles.sourceIcon}>
+                    <AppIcon
+                      name={SOURCE_ICONS[typedSource]}
+                      size={16}
+                      color={theme.text.secondary}
+                    />
+                  </View>
                   <Text style={styles.sourceLabel}>{SOURCE_LABELS[typedSource]}</Text>
                 </View>
                 <View style={styles.sourceBarContainer}>
@@ -413,7 +420,6 @@ const styles = StyleSheet.create({
     width: 90,
   },
   sourceIcon: {
-    fontSize: 16,
     marginRight: spacing.sm,
   },
   sourceLabel: {

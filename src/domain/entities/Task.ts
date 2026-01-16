@@ -195,17 +195,17 @@ export class Task {
     const issueType = this.getIssueType().toLowerCase();
 
     if (issueType.includes("epic")) {
-      return "📚";
+      return "epic";
     } else if (issueType.includes("story")) {
-      return "📖";
+      return "story";
     } else if (issueType.includes("bug")) {
-      return "🐛";
+      return "bug";
     } else if (issueType.includes("subtask")) {
-      return "☑️";
+      return "subtask";
     } else if (issueType.includes("task")) {
-      return "📋";
+      return "task";
     }
-    return "📄";
+    return "file";
   }
 
   /**

@@ -6,6 +6,7 @@ import { Parent } from '../../domain/entities/Parent';
 import TaskCard from './ItemCard';
 import ParentGroup from './ParentGroup';
 import theme from '../theme';
+import AppIcon from './icons/AppIcon';
 
 // Type for grouped tasks with parent
 interface GroupedTasksData {
@@ -154,7 +155,7 @@ const ColumnCard = React.memo<ColumnCardProps>(({
               onPress={() => onColumnMenu(column)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.menuIcon}>⋮</Text>
+              <AppIcon name="more" size={18} color={theme.text.secondary} />
             </TouchableOpacity>
           )}
         </View>
@@ -258,10 +259,5 @@ const styles = StyleSheet.create({
   },
   menuButton: {
     padding: theme.spacing.xs,
-  },
-  menuIcon: {
-    fontSize: 20,
-    color: theme.text.secondary,
-    fontWeight: 'bold',
   },
 });

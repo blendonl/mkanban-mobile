@@ -12,14 +12,15 @@ import { spacing } from '../../theme/spacing';
 import { getTimeTrackingService } from '../../../core/DependencyContainer';
 import { TimeLog, TimeEntry, TimeSource } from '../../../domain/entities/TimeLog';
 import { TimeStackParamList } from '../../navigation/TabNavigator';
+import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 
 type TimeLogDetailRouteProp = RouteProp<TimeStackParamList, 'TimeLogDetail'>;
 
-const SOURCE_ICONS: Record<TimeSource, string> = {
-  manual: '✍️',
-  git: '📦',
-  tmux: '💻',
-  calendar: '📅',
+const SOURCE_ICONS: Record<TimeSource, AppIconName> = {
+  manual: 'edit',
+  git: 'box',
+  tmux: 'terminal',
+  calendar: 'calendar',
 };
 
 const SOURCE_LABELS: Record<TimeSource, string> = {
@@ -161,7 +162,9 @@ export default function TimeLogDetailScreen() {
             return (
               <View key={source} style={styles.sourceRow}>
                 <View style={styles.sourceInfo}>
-                  <Text style={styles.sourceIcon}>{SOURCE_ICONS[typedSource]}</Text>
+                  <View style={styles.sourceIcon}>
+                    <AppIcon name={SOURCE_ICONS[typedSource]} size={16} color={theme.text.secondary} />
+                  </View>
                   <Text style={styles.sourceLabel}>{SOURCE_LABELS[typedSource]}</Text>
                 </View>
                 <View style={styles.sourceBarContainer}>
@@ -230,9 +233,9 @@ export default function TimeLogDetailScreen() {
               >
                 <View style={styles.entryHeader}>
                   <View style={styles.entrySourceInfo}>
-                    <Text style={styles.entrySourceIcon}>
-                      {SOURCE_ICONS[typedSource]}
-                    </Text>
+                    <View style={styles.entrySourceIcon}>
+                      <AppIcon name={SOURCE_ICONS[typedSource]} size={14} color={theme.text.secondary} />
+                    </View>
                     <Text style={styles.entrySource}>
                       {SOURCE_LABELS[typedSource]}
                     </Text>
@@ -270,7 +273,7 @@ export default function TimeLogDetailScreen() {
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📭</Text>
+      <AppIcon name="inbox" size={28} color={theme.text.muted} />
       <Text style={styles.emptyTitle}>No Time Logged</Text>
       <Text style={styles.emptyText}>
         No time entries were recorded for this date.
@@ -376,7 +379,6 @@ const styles = StyleSheet.create({
     width: 130,
   },
   sourceIcon: {
-    fontSize: 16,
     marginRight: spacing.sm,
   },
   sourceLabel: {
@@ -436,7 +438,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   entrySourceIcon: {
-    fontSize: 14,
     marginRight: spacing.xs,
   },
   entrySource: {
@@ -477,10 +478,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.xl,
     paddingTop: spacing.xxxl,
-  },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: spacing.md,
   },
   emptyTitle: {
     color: theme.text.primary,

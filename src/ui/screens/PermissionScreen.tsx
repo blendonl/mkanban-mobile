@@ -16,6 +16,7 @@ import {
   Alert,
 } from 'react-native';
 import { requestStoragePermission, checkStoragePermission } from '../../utils/storagePermissions';
+import AppIcon from '../components/icons/AppIcon';
 
 interface PermissionScreenProps {
   onPermissionGranted: () => void;
@@ -73,7 +74,7 @@ export default function PermissionScreen({ onPermissionGranted }: PermissionScre
       <View style={styles.content}>
         {/* Icon */}
         <View style={styles.iconContainer}>
-          <Text style={styles.icon}>📂</Text>
+          <AppIcon name="folder-open" size={48} color="#ffffff" />
         </View>
 
         {/* Title */}
@@ -175,9 +176,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
-  },
-  icon: {
-    fontSize: 50,
   },
   title: {
     fontSize: 24,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { theme } from '../theme/colors';
+import AppIcon from './icons/AppIcon';
 
 interface OrphanedItemBadgeProps {
   size?: 'small' | 'medium';
@@ -11,9 +12,12 @@ export const OrphanedItemBadge: React.FC<OrphanedItemBadgeProps> = ({ size = 'me
 
   return (
     <View style={[styles.badge, isSmall && styles.badgeSmall]}>
-      <Text style={[styles.badgeText, isSmall && styles.badgeTextSmall]}>
-        ⚠️ Task Deleted
-      </Text>
+      <View style={styles.badgeContent}>
+        <AppIcon name="alert" size={isSmall ? 12 : 14} color={theme.background.primary} />
+        <Text style={[styles.badgeText, isSmall && styles.badgeTextSmall]}>
+          Task Deleted
+        </Text>
+      </View>
     </View>
   );
 };
@@ -30,6 +34,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+  },
+  badgeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   badgeText: {
     color: theme.background.primary,

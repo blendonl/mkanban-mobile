@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { TaskType } from '../../domain/entities/Task';
+import { theme } from '../theme/colors';
 
 interface TimeBlockBarProps {
   taskType: TaskType;
@@ -16,11 +17,11 @@ export const TimeBlockBar: React.FC<TimeBlockBarProps> = ({
   const getTaskTypeColor = () => {
     switch (taskType) {
       case 'meeting':
-        return '#10B981';
+        return theme.accent.success;
       case 'milestone':
-        return '#8B5CF6';
+        return theme.accent.secondary;
       default:
-        return '#3B82F6';
+        return theme.accent.primary;
     }
   };
 
@@ -54,7 +55,7 @@ const styles = StyleSheet.create({
   },
   track: {
     height: 4,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: theme.border.secondary,
     borderRadius: 2,
     overflow: 'hidden',
   },

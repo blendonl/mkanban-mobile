@@ -22,6 +22,7 @@ import { getIssueTypeIcon, getAllIssueTypes } from '../../utils/issueTypeUtils';
 import alertService from '../../services/AlertService';
 import { uiConstants } from '../theme';
 import { Screen } from '../components/Screen';
+import AppIcon from '../components/icons/AppIcon';
 
 type ItemDetailScreenNavigationProp = StackNavigationProp<BoardStackParamList, 'ItemDetail'>;
 type ItemDetailScreenRouteProp = RouteProp<BoardStackParamList, 'ItemDetail'>;
@@ -238,10 +239,16 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
             }}
           >
             <View style={styles.issueTypeOption}>
-              <Text style={styles.issueTypeIcon}>{getIssueTypeIcon(issueType)}</Text>
+              <View style={styles.issueTypeIcon}>
+                <AppIcon name={getIssueTypeIcon(issueType)} size={18} color={theme.text.secondary} />
+              </View>
               <Text style={styles.issueTypeText}>{issueType}</Text>
             </View>
-            {selectedIssueType === issueType && <Text style={styles.checkmark}>✓</Text>}
+            {selectedIssueType === issueType && (
+              <View style={styles.checkmark}>
+                <AppIcon name="check" size={18} color={theme.accent.primary} />
+              </View>
+            )}
           </TouchableOpacity>
         ))}
       </Screen>
@@ -268,7 +275,11 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           }}
         >
           <Text style={styles.parentOptionText}>None</Text>
-          {selectedParentId === null && <Text style={styles.checkmark}>✓</Text>}
+          {selectedParentId === null && (
+            <View style={styles.checkmark}>
+              <AppIcon name="check" size={18} color={theme.accent.primary} />
+            </View>
+          )}
         </TouchableOpacity>
 
         {/* Parent options */}
@@ -282,7 +293,11 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
             }}
           >
             <ParentBadge name={parent.name} color={parent.color} size="medium" />
-            {selectedParentId === parent.id && <Text style={styles.checkmark}>✓</Text>}
+            {selectedParentId === parent.id && (
+              <View style={styles.checkmark}>
+                <AppIcon name="check" size={18} color={theme.accent.primary} />
+              </View>
+            )}
           </TouchableOpacity>
         ))}
       </Screen>
@@ -311,9 +326,16 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
             style={styles.previewToggle}
             onPress={() => setShowMarkdownPreview(!showMarkdownPreview)}
           >
-            <Text style={styles.previewToggleText}>
-              {showMarkdownPreview ? '✏️ Edit' : '👁 Preview'}
-            </Text>
+            <View style={styles.previewToggleContent}>
+              <AppIcon
+                name={showMarkdownPreview ? 'edit' : 'eye'}
+                size={14}
+                color={theme.text.secondary}
+              />
+              <Text style={styles.previewToggleText}>
+                {showMarkdownPreview ? 'Edit' : 'Preview'}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -342,7 +364,9 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           onPress={() => setShowIssueTypePicker(true)}
         >
           <View style={styles.issueTypeDisplay}>
-            <Text style={styles.issueTypeIcon}>{getIssueTypeIcon(selectedIssueType)}</Text>
+            <View style={styles.issueTypeIcon}>
+              <AppIcon name={getIssueTypeIcon(selectedIssueType)} size={18} color={theme.text.secondary} />
+            </View>
             <Text style={styles.issueTypeText}>{selectedIssueType}</Text>
           </View>
         </TouchableOpacity>
@@ -420,7 +444,9 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           >
             {task.isScheduled ? (
               <View style={styles.scheduleInfo}>
-                <Text style={styles.scheduleIcon}>📅</Text>
+                <View style={styles.scheduleIcon}>
+                  <AppIcon name="calendar" size={20} color={theme.text.secondary} />
+                </View>
                 <View style={styles.scheduleTextContainer}>
                   <Text style={styles.scheduleDate}>
                     {task.scheduled_date}
@@ -435,7 +461,9 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
               </View>
             ) : (
               <View style={styles.scheduleInfo}>
-                <Text style={styles.scheduleIcon}>📅</Text>
+                <View style={styles.scheduleIcon}>
+                  <AppIcon name="calendar" size={20} color={theme.text.secondary} />
+                </View>
                 <Text style={styles.scheduleNotSet}>Schedule this task</Text>
               </View>
             )}
@@ -609,9 +637,7 @@ const styles = StyleSheet.create({
     color: theme.text.secondary,
   },
   checkmark: {
-    fontSize: 20,
-    color: theme.accent.primary,
-    fontWeight: 'bold',
+    marginLeft: 8,
   },
   labelRow: {
     flexDirection: 'row',
@@ -624,6 +650,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     backgroundColor: theme.background.elevated,
     borderRadius: 6,
+  },
+  previewToggleContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   previewToggleText: {
     fontSize: 12,
@@ -647,7 +678,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   issueTypeIcon: {
-    fontSize: 18,
     marginRight: 8,
   },
   issueTypeText: {
@@ -687,7 +717,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scheduleIcon: {
-    fontSize: 20,
     marginRight: 12,
   },
   scheduleTextContainer: {

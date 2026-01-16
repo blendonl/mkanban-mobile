@@ -1,44 +1,44 @@
 /**
- * Catppuccin Mocha Theme with Pure Black Background
- * https://github.com/catppuccin/catppuccin
+ * Midnight Slate Theme
+ * Neutral surfaces with crisp blue + teal accents
  */
 
 export const CatppuccinColors = {
-  // Base colors - using pure black for background
-  base: '#000000',        // Pure black background instead of #1e1e2e
-  mantle: '#181825',
-  crust: '#11111b',
+  // Base colors
+  base: '#0F1115',
+  mantle: '#151821',
+  crust: '#1B1F2A',
 
   // Surface colors
-  surface0: '#313244',
-  surface1: '#45475a',
-  surface2: '#585b70',
+  surface0: '#1F2430',
+  surface1: '#273044',
+  surface2: '#303A52',
 
   // Overlay colors
-  overlay0: '#6c7086',
-  overlay1: '#7f849c',
-  overlay2: '#9399b2',
+  overlay0: '#3C465E',
+  overlay1: '#55617A',
+  overlay2: '#6C7890',
 
   // Text colors
-  text: '#cdd6f4',
-  subtext0: '#a6adc8',
-  subtext1: '#bac2de',
+  text: '#E6E9EF',
+  subtext0: '#C0C7D4',
+  subtext1: '#D3D8E2',
 
   // Accent colors
-  blue: '#89b4fa',
-  lavender: '#b4befe',
-  sapphire: '#74c7ec',
-  sky: '#89dceb',
-  teal: '#94e2d5',
-  green: '#a6e3a1',
-  yellow: '#f9e2af',
-  peach: '#fab387',
-  maroon: '#eba0ac',
-  red: '#f38ba8',
-  mauve: '#cba6f7',
-  pink: '#f5c2e7',
-  flamingo: '#f2cdcd',
-  rosewater: '#f5e0dc',
+  blue: '#4F8CFF',
+  lavender: '#7A8CFF',
+  sapphire: '#5AC8FA',
+  sky: '#6BD6E8',
+  teal: '#5AD1B2',
+  green: '#3CCB8C',
+  yellow: '#F5B454',
+  peach: '#F29A64',
+  maroon: '#E76F7C',
+  red: '#F26B6B',
+  mauve: '#9B7AF6',
+  pink: '#F28DD1',
+  flamingo: '#F2B4A8',
+  rosewater: '#F5D7C9',
 };
 
 // Semantic color mappings for easier usage
@@ -111,7 +111,7 @@ export const theme = {
   button: {
     primary: {
       background: CatppuccinColors.blue,
-      text: CatppuccinColors.base,
+      text: CatppuccinColors.text,
     },
     secondary: {
       background: CatppuccinColors.surface1,
@@ -119,24 +119,24 @@ export const theme = {
     },
     danger: {
       background: CatppuccinColors.red,
-      text: CatppuccinColors.base,
+      text: CatppuccinColors.text,
     },
     success: {
       background: CatppuccinColors.green,
-      text: CatppuccinColors.base,
+      text: CatppuccinColors.text,
     },
   },
 
   // Badge colors
   badge: {
     background: CatppuccinColors.blue,
-    text: CatppuccinColors.base,
+    text: CatppuccinColors.text,
   },
 
   // Header/navigation colors
   header: {
     background: CatppuccinColors.blue,
-    text: CatppuccinColors.base,
+    text: CatppuccinColors.text,
   },
 
   // Modal/overlay colors
@@ -147,13 +147,13 @@ export const theme = {
 
   // Glassmorphism
   glass: {
-    background: 'rgba(24, 24, 37, 0.65)',
+    background: 'rgba(21, 24, 33, 0.72)',
     border: 'rgba(255, 255, 255, 0.08)',
     highlight: 'rgba(255, 255, 255, 0.04)',
     tint: {
-      blue: 'rgba(137, 180, 250, 0.12)',
-      purple: 'rgba(180, 190, 254, 0.12)',
-      neutral: 'rgba(69, 71, 90, 0.6)',
+      blue: 'rgba(79, 140, 255, 0.14)',
+      purple: 'rgba(122, 140, 255, 0.14)',
+      neutral: 'rgba(39, 48, 68, 0.7)',
     },
     blur: 20,
   },

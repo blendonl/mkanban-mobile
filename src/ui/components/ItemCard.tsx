@@ -6,6 +6,7 @@ import ParentBadge from './ParentBadge';
 import theme from '../theme';
 import { getIssueTypeIcon } from '../../utils/issueTypeUtils';
 import { uiConstants } from '../theme';
+import AppIcon from './icons/AppIcon';
 
 interface TaskCardProps {
   task: Task;
@@ -33,7 +34,9 @@ const TaskCard = React.memo<TaskCardProps>(({ task, parent, onPress, onLongPress
       activeOpacity={theme.ui.PRESSED_OPACITY}
     >
       <View style={styles.header}>
-        <Text style={styles.icon}>{icon}</Text>
+        <View style={styles.icon}>
+          <AppIcon name={icon} size={18} color={theme.text.secondary} />
+        </View>
         <Text style={styles.title} numberOfLines={2}>
           {task.title}
         </Text>
@@ -78,7 +81,6 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
   },
   icon: {
-    fontSize: theme.typography.fontSizes.lg,
     marginRight: theme.spacing.sm,
     marginTop: 2,
   },

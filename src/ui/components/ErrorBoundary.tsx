@@ -5,6 +5,7 @@
 
 import React, { Component, ReactNode } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import AppIcon from './icons/AppIcon';
 
 interface Props {
   children: ReactNode;
@@ -54,7 +55,9 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <View style={styles.container}>
           <View style={styles.content}>
-            <Text style={styles.emoji}>⚠️</Text>
+            <View style={styles.icon}>
+              <AppIcon name="alert" size={48} color="#f59e0b" />
+            </View>
             <Text style={styles.title}>Oops! Something went wrong</Text>
             <Text style={styles.message}>
               The app encountered an unexpected error. Don't worry, your data is safe.
@@ -93,8 +96,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     maxWidth: 400,
   },
-  emoji: {
-    fontSize: 64,
+  icon: {
     marginBottom: 16,
   },
   title: {

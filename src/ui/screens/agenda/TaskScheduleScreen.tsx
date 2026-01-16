@@ -15,14 +15,15 @@ import { spacing } from '../../theme/spacing';
 import { getAgendaService, getBoardService } from '../../../core/DependencyContainer';
 import { Task, TaskType } from '../../../domain/entities/Task';
 import { AgendaStackParamList } from '../../navigation/TabNavigator';
+import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 
 type TaskScheduleRouteProp = RouteProp<AgendaStackParamList, 'TaskSchedule'>;
 type TaskScheduleNavProp = StackNavigationProp<AgendaStackParamList, 'TaskSchedule'>;
 
-const TASK_TYPES: { value: TaskType; label: string; icon: string }[] = [
-  { value: 'regular', label: 'Task', icon: '📋' },
-  { value: 'meeting', label: 'Meeting', icon: '👥' },
-  { value: 'milestone', label: 'Milestone', icon: '🎯' },
+const TASK_TYPES: { value: TaskType; label: string; icon: AppIconName }[] = [
+  { value: 'regular', label: 'Task', icon: 'task' },
+  { value: 'meeting', label: 'Meeting', icon: 'users' },
+  { value: 'milestone', label: 'Milestone', icon: 'milestone' },
 ];
 
 const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120];
@@ -45,10 +46,7 @@ export default function TaskScheduleScreen() {
 
   const loadTask = useCallback(async () => {
     try {
-      console.log('loadTask called - taskData:', taskData ? 'exists' : 'null');
-      console.log('loading state:', loading);
       if (taskData) {
-        console.log('Using taskData:', taskData.id, taskData.title);
         const taskInstance = Task.fromDict(taskData);
         setTask(taskInstance);
         setSelectedDate(taskInstance.scheduled_date || getTodayString());
@@ -58,11 +56,8 @@ export default function TaskScheduleScreen() {
         setMeetingLocation(taskInstance.meeting_data?.location || '');
         setMeetingAttendees(taskInstance.meeting_data?.attendees?.join(', ') || '');
         setLoading(false);
-        console.log('Set loading to false');
         return;
       }
-
-      console.log('Loading from board...');
 
       const boardService = getBoardService();
       const board = await boardService.getBoardById(boardId);
@@ -202,14 +197,10 @@ export default function TaskScheduleScreen() {
     return options;
   };
 
-  console.log('Render - loading:', loading, 'task:', task ? task.id : 'null');
-
   if (loading) {
     return (
       <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading... (state: {loading ? 'true' : 'false'})</Text>
-        <Text style={styles.loadingText}>TaskData: {taskData ? 'exists' : 'null'}</Text>
-        <Text style={styles.loadingText}>TaskId: {taskId}</Text>
+        <Text style={styles.loadingText}>Loading schedule...</Text>
       </View>
     );
   }
@@ -218,8 +209,6 @@ export default function TaskScheduleScreen() {
     return (
       <View style={styles.container}>
         <Text style={styles.loadingText}>Task not found</Text>
-        <Text style={styles.loadingText}>Loading: {loading ? 'true' : 'false'}</Text>
-        <Text style={styles.loadingText}>TaskData: {taskData ? 'exists' : 'null'}</Text>
       </View>
     );
   }
@@ -228,13 +217,16 @@ export default function TaskScheduleScreen() {
   const timeOptions = generateTimeOptions();
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={{ padding: 20, backgroundColor: 'red' }}>
-        <Text style={{ color: 'white', fontSize: 20 }}>DEBUG: Screen is rendering!</Text>
-        <Text style={{ color: 'white' }}>Task: {task?.title}</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.hero}>
+        <Text style={styles.heroLabel}>Scheduling</Text>
+        <Text style={styles.heroTitle}>{task.title}</Text>
+        <Text style={styles.heroSubtitle}>Pick when this work should happen.</Text>
       </View>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Task Type</Text>
+        <Text style={styles.sectionSubtitle}>Set the kind of work this is.</Text>
         <View style={styles.typeRow}>
           {TASK_TYPES.map(type => (
             <TouchableOpacity
@@ -245,7 +237,11 @@ export default function TaskScheduleScreen() {
               ]}
               onPress={() => setSelectedType(type.value)}
             >
-              <Text style={styles.typeIcon}>{type.icon}</Text>
+              <AppIcon
+                name={type.icon}
+                size={18}
+                color={selectedType === type.value ? theme.background.primary : theme.text.secondary}
+              />
               <Text style={[
                 styles.typeLabel,
                 selectedType === type.value && styles.typeLabelSelected,
@@ -259,6 +255,7 @@ export default function TaskScheduleScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Date</Text>
+        <Text style={styles.sectionSubtitle}>Choose a day to schedule this task.</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateScroll}>
           {dateOptions.map(option => (
             <TouchableOpacity
@@ -281,7 +278,8 @@ export default function TaskScheduleScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Time (Optional)</Text>
+        <Text style={styles.sectionTitle}>Time</Text>
+        <Text style={styles.sectionSubtitle}>Optional. Leave it as all day to keep it flexible.</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timeScroll}>
           <TouchableOpacity
             style={[
@@ -294,7 +292,7 @@ export default function TaskScheduleScreen() {
               styles.timeLabel,
               !selectedTime && styles.timeLabelSelected,
             ]}>
-              All Day
+              All day
             </Text>
           </TouchableOpacity>
           {timeOptions.map(option => (
@@ -318,7 +316,8 @@ export default function TaskScheduleScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Duration (Optional)</Text>
+        <Text style={styles.sectionTitle}>Duration</Text>
+        <Text style={styles.sectionSubtitle}>Optional. Helps estimate how much time you need.</Text>
         <View style={styles.durationRow}>
           <TouchableOpacity
             style={[
@@ -358,22 +357,27 @@ export default function TaskScheduleScreen() {
         <>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Location</Text>
+            <Text style={styles.sectionSubtitle}>Optional. Where is this happening?</Text>
             <TextInput
               style={styles.input}
               value={meetingLocation}
               onChangeText={setMeetingLocation}
               placeholder="Meeting location (optional)"
+              autoCapitalize="words"
               placeholderTextColor={theme.text.muted}
             />
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Attendees</Text>
+            <Text style={styles.sectionSubtitle}>Optional. Use commas to separate names.</Text>
             <TextInput
               style={styles.input}
               value={meetingAttendees}
               onChangeText={setMeetingAttendees}
               placeholder="Comma-separated list (optional)"
+              autoCapitalize="none"
+              autoCorrect={false}
               placeholderTextColor={theme.text.muted}
             />
           </View>
@@ -430,13 +434,39 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.background.primary,
   },
+  content: {
+    paddingBottom: spacing.xxl,
+  },
   loadingText: {
     color: theme.text.secondary,
     textAlign: 'center',
     marginTop: spacing.xl,
   },
+  hero: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  heroLabel: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    color: theme.text.tertiary,
+    marginBottom: 6,
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: theme.text.primary,
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    color: theme.text.secondary,
+  },
   section: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: theme.border.primary,
   },
@@ -447,6 +477,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  sectionSubtitle: {
+    color: theme.text.tertiary,
+    fontSize: 13,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
   },
   typeRow: {
     flexDirection: 'row',
@@ -466,10 +502,6 @@ const styles = StyleSheet.create({
   typeButtonSelected: {
     borderColor: theme.accent.primary,
     backgroundColor: theme.accent.primary + '20',
-  },
-  typeIcon: {
-    fontSize: 18,
-    marginRight: spacing.sm,
   },
   typeLabel: {
     color: theme.text.primary,
@@ -583,6 +615,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: spacing.md,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.border.primary,
   },
   unscheduleButtonText: {
     color: theme.accent.error,

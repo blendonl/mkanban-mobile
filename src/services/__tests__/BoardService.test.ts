@@ -266,7 +266,7 @@ describe('BoardService', () => {
         created_at: new Date().toISOString(),
         getIssueType: () => 'Task',
         setIssueType: () => {},
-        getIssueTypeIcon: () => '📋',
+        getIssueTypeIcon: () => 'task',
       } as any);
 
       const board = new Board('test', 'Test', [column], []);

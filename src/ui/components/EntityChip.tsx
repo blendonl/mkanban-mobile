@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import theme from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { EntityType } from '../../domain/entities/Note';
+import AppIcon, { AppIconName } from './icons/AppIcon';
 
 interface EntityChipProps {
   entityType: EntityType;
@@ -13,10 +14,10 @@ interface EntityChipProps {
   showRemove?: boolean;
 }
 
-const ENTITY_CONFIG: Record<EntityType, { icon: string; color: string }> = {
-  project: { icon: '📁', color: theme.accent.primary },
-  board: { icon: '📋', color: theme.accent.secondary },
-  task: { icon: '✓', color: theme.accent.success },
+const ENTITY_CONFIG: Record<EntityType, { icon: AppIconName; color: string }> = {
+  project: { icon: 'folder', color: theme.accent.primary },
+  board: { icon: 'board', color: theme.accent.secondary },
+  task: { icon: 'check', color: theme.accent.success },
 };
 
 export default function EntityChip({
@@ -48,7 +49,9 @@ export default function EntityChip({
       disabled={!onPress}
       activeOpacity={onPress ? 0.7 : 1}
     >
-      <Text style={styles.icon}>{config.icon}</Text>
+      <View style={styles.icon}>
+        <AppIcon name={config.icon} size={14} color={config.color} />
+      </View>
       <Text style={styles.name} numberOfLines={1}>{entityName}</Text>
       {showRemove && onRemove && (
         <TouchableOpacity
@@ -77,7 +80,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   icon: {
-    fontSize: 13,
     marginRight: spacing.xs,
   },
   name: {

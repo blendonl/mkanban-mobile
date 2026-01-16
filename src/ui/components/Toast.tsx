@@ -13,6 +13,7 @@ import {
   Dimensions,
 } from 'react-native';
 import theme from '../theme/colors';
+import AppIcon, { AppIconName } from './icons/AppIcon';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -101,17 +102,17 @@ export default function Toast({
     }
   };
 
-  const getIcon = (): string => {
+  const getIcon = (): AppIconName => {
     switch (type) {
       case 'success':
-        return '✓';
+        return 'check';
       case 'error':
-        return '✕';
+        return 'close';
       case 'warning':
-        return '⚠';
+        return 'alert';
       case 'info':
       default:
-        return 'ⓘ';
+        return 'info';
     }
   };
 
@@ -132,7 +133,7 @@ export default function Toast({
         activeOpacity={0.9}
       >
         <View style={styles.iconContainer}>
-          <Text style={styles.icon}>{getIcon()}</Text>
+          <AppIcon name={getIcon()} size={16} color={theme.background.primary} />
         </View>
         <Text style={styles.message} numberOfLines={2}>
           {message}
@@ -171,11 +172,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
-  },
-  icon: {
-    fontSize: 16,
-    color: theme.background.primary,
-    fontWeight: 'bold',
   },
   message: {
     flex: 1,

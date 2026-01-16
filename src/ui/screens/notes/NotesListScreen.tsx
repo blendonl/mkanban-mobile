@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,32 +7,41 @@ import {
   TouchableOpacity,
   RefreshControl,
   TextInput,
+  ScrollView,
 } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import theme from '../../theme/colors';
+import theme from '../../theme';
 import { spacing } from '../../theme/spacing';
 import { getNoteService, getProjectService, getBoardService, getTaskService } from '../../../core/DependencyContainer';
 import { Note, NoteType } from '../../../domain/entities/Note';
 import { NotesStackParamList } from '../../navigation/TabNavigator';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import AutoRefreshIndicator from '../../components/AutoRefreshIndicator';
+import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 
 type NotesListNavProp = StackNavigationProp<NotesStackParamList, 'NotesList'>;
 
-const NOTE_TYPE_FILTERS: { value: NoteType | 'all'; label: string; icon: string }[] = [
-  { value: 'all', label: 'All', icon: '📑' },
-  { value: 'general', label: 'Notes', icon: '📝' },
-  { value: 'meeting', label: 'Meetings', icon: '👥' },
-  { value: 'daily', label: 'Daily', icon: '📅' },
+const NOTE_TYPE_FILTERS: { value: NoteType | 'all'; label: string; icon: AppIconName }[] = [
+  { value: 'all', label: 'All', icon: 'stack' },
+  { value: 'general', label: 'Notes', icon: 'note' },
+  { value: 'meeting', label: 'Meetings', icon: 'users' },
+  { value: 'daily', label: 'Daily', icon: 'calendar' },
 ];
 
-const NOTE_TYPE_ICONS: Record<NoteType, string> = {
-  general: '📝',
-  meeting: '👥',
-  daily: '📅',
-  task: '✅',
+const NOTE_TYPE_ICONS: Record<NoteType, AppIconName> = {
+  general: 'note',
+  meeting: 'users',
+  daily: 'calendar',
+  task: 'check',
+};
+
+const NOTE_TYPE_LABELS: Record<NoteType, string> = {
+  general: 'Note',
+  meeting: 'Meeting',
+  daily: 'Daily',
+  task: 'Task',
 };
 
 export default function NotesListScreen() {
@@ -124,6 +133,15 @@ export default function NotesListScreen() {
     setRefreshing(false);
   }, [loadNotes]);
 
+  const noteCountLabel = useMemo(() => {
+    const count = filteredNotes.length;
+    const suffix = count === 1 ? 'note' : 'notes';
+    if (selectedType === 'all') {
+      return `${count} ${suffix}`;
+    }
+    return `${count} ${suffix} • ${NOTE_TYPE_LABELS[selectedType as NoteType]}`;
+  }, [filteredNotes.length, selectedType]);
+
   const handleCreateNote = () => {
     navigation.navigate('NoteEditor', {});
   };
@@ -158,21 +176,21 @@ export default function NotesListScreen() {
   };
 
   const renderEntityIndicators = (note: Note) => {
-    const entities: { icon: string; name: string }[] = [];
+    const entities: { icon: AppIconName; name: string }[] = [];
 
     note.project_ids.slice(0, 1).forEach(id => {
       const name = entityNames.get(`p_${id}`) || id;
-      entities.push({ icon: '📁', name });
+      entities.push({ icon: 'folder' as AppIconName, name });
     });
 
     note.board_ids.slice(0, 1).forEach(id => {
       const name = entityNames.get(`b_${id}`) || id;
-      entities.push({ icon: '📋', name });
+      entities.push({ icon: 'board' as AppIconName, name });
     });
 
     const taskCount = note.task_ids.length;
     if (taskCount > 0) {
-      entities.push({ icon: '✓', name: `${taskCount} task${taskCount > 1 ? 's' : ''}` });
+      entities.push({ icon: 'check', name: `${taskCount} task${taskCount > 1 ? 's' : ''}` });
     }
 
     const totalEntities = note.project_ids.length + note.board_ids.length + note.task_ids.length;
@@ -184,13 +202,16 @@ export default function NotesListScreen() {
     return (
       <View style={styles.entityIndicators}>
         {entities.map((entity, index) => (
-          <Text key={index} style={styles.entityIndicatorText}>
-            {entity.icon} {entity.name}
-            {index < entities.length - 1 && ' • '}
-          </Text>
+          <View key={`${entity.name}-${index}`} style={styles.entityIndicatorItem}>
+            <AppIcon name={entity.icon} size={12} color={theme.text.tertiary} />
+            <Text style={styles.entityIndicatorText}>{entity.name}</Text>
+            {index < entities.length - 1 && (
+              <Text style={styles.entityIndicatorSeparator}>•</Text>
+            )}
+          </View>
         ))}
         {remaining > 0 && (
-          <Text style={styles.entityIndicatorText}> • +{remaining} more</Text>
+          <Text style={styles.entityIndicatorText}>+{remaining} more</Text>
         )}
       </View>
     );
@@ -205,31 +226,45 @@ export default function NotesListScreen() {
         onPress={() => handleNotePress(note)}
         activeOpacity={0.8}
       >
-        <View style={styles.noteHeader}>
-          <View style={styles.noteHeaderLeft}>
-            <Text style={styles.noteIcon}>{icon}</Text>
-            <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
+        <View style={styles.noteCardTop}>
+          <View style={styles.noteIconWrap}>
+            <AppIcon name={icon} size={18} color={theme.text.secondary} />
           </View>
-          <Text style={styles.noteDate}>{formatDate(note.updated_at)}</Text>
-        </View>
-        {note.preview && (
-          <Text style={styles.notePreview} numberOfLines={3}>{note.preview}</Text>
-        )}
-        {renderEntityIndicators(note)}
-        <View style={styles.noteMeta}>
-          {note.tags.length > 0 && (
-            <View style={styles.tagRow}>
-              {note.tags.slice(0, 3).map(tag => (
-                <View key={tag} style={styles.tag}>
-                  <Text style={styles.tagText}>#{tag}</Text>
-                </View>
-              ))}
-              {note.tags.length > 3 && (
-                <Text style={styles.moreTagsText}>+{note.tags.length - 3}</Text>
-              )}
+          <View style={styles.noteBody}>
+            <View style={styles.noteHeader}>
+              <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
+              <Text style={styles.noteDate}>{formatDate(note.updated_at)}</Text>
             </View>
-          )}
-          <Text style={styles.wordCount}>{note.wordCount} words</Text>
+            {note.preview && (
+              <Text style={styles.notePreview} numberOfLines={3}>{note.preview}</Text>
+            )}
+            {renderEntityIndicators(note)}
+            <View style={styles.noteMeta}>
+              <View style={styles.noteMetaLeft}>
+                {note.tags.length > 0 && (
+                  <View style={styles.tagRow}>
+                    {note.tags.slice(0, 3).map(tag => (
+                      <View key={tag} style={styles.tag}>
+                        <Text style={styles.tagText}>#{tag}</Text>
+                      </View>
+                    ))}
+                    {note.tags.length > 3 && (
+                      <Text style={styles.moreTagsText}>+{note.tags.length - 3}</Text>
+                    )}
+                  </View>
+                )}
+                <View style={styles.noteTypeBadge}>
+                  <View style={styles.noteTypeContent}>
+                    <AppIcon name={icon} size={12} color={theme.text.secondary} />
+                    <Text style={styles.noteTypeText}>
+                      {NOTE_TYPE_LABELS[note.note_type]}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+              <Text style={styles.wordCount}>{note.wordCount} words</Text>
+            </View>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -238,7 +273,9 @@ export default function NotesListScreen() {
   const renderFilters = () => (
     <View style={styles.filterContainer}>
       <View style={styles.searchContainer}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <View style={styles.searchIcon}>
+          <AppIcon name="search" size={16} color={theme.text.muted} />
+        </View>
         <TextInput
           style={styles.searchInput}
           placeholder="Search notes..."
@@ -252,7 +289,11 @@ export default function NotesListScreen() {
           </TouchableOpacity>
         )}
       </View>
-      <View style={styles.typeFilters}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.typeFilters}
+      >
         {NOTE_TYPE_FILTERS.map(filter => (
           <TouchableOpacity
             key={filter.value}
@@ -262,7 +303,13 @@ export default function NotesListScreen() {
             ]}
             onPress={() => setSelectedType(filter.value)}
           >
-            <Text style={styles.filterIcon}>{filter.icon}</Text>
+            <View style={styles.filterIcon}>
+              <AppIcon
+                name={filter.icon}
+                size={14}
+                color={selectedType === filter.value ? theme.background.primary : theme.text.secondary}
+              />
+            </View>
             <Text style={[
               styles.filterLabel,
               selectedType === filter.value && styles.filterLabelActive,
@@ -271,13 +318,13 @@ export default function NotesListScreen() {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📝</Text>
+      <AppIcon name="note" size={28} color={theme.text.muted} />
       <Text style={styles.emptyTitle}>No Notes Yet</Text>
       <Text style={styles.emptyText}>
         Create notes to capture ideas, meeting minutes, and daily reflections.
@@ -304,8 +351,13 @@ export default function NotesListScreen() {
   return (
     <Screen hasTabBar>
       <View style={styles.screenHeader}>
-        <AutoRefreshIndicator isRefreshing={isAutoRefreshing} />
-        <View style={styles.headerLeft} />
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>Notes</Text>
+          <Text style={styles.headerSubtitle}>{noteCountLabel}</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <AutoRefreshIndicator isRefreshing={isAutoRefreshing} />
+        </View>
       </View>
 
       {renderFilters()}
@@ -326,6 +378,7 @@ export default function NotesListScreen() {
           />
         }
         contentContainerStyle={filteredNotes.length === 0 ? styles.emptyList : styles.list}
+        keyboardShouldPersistTaps="handled"
       />
 
       <TouchableOpacity style={styles.fab} onPress={handleCreateNote}>
@@ -341,29 +394,27 @@ const styles = StyleSheet.create({
     backgroundColor: theme.background.primary,
   },
   screenHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
   },
-  headerLeft: {
-    width: 40,
+  headerText: {
+    gap: 6,
   },
-  addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.glass.tint.neutral,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.glass.border,
+  headerTitle: {
+    color: theme.text.primary,
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
-  addButtonText: {
-    color: theme.accent.primary,
-    fontSize: 24,
-    fontWeight: '300',
+  headerSubtitle: {
+    color: theme.text.secondary,
+    fontSize: 13,
+  },
+  headerRight: {
+    position: 'absolute',
+    right: spacing.lg,
+    top: spacing.md,
   },
   loadingText: {
     color: theme.text.secondary,
@@ -371,23 +422,21 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
   },
   filterContainer: {
-    backgroundColor: theme.background.secondary,
-    paddingTop: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border.primary,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: spacing.md,
     marginBottom: spacing.md,
-    backgroundColor: theme.input.background,
-    borderRadius: 12,
+    backgroundColor: theme.glass.tint.neutral,
+    borderRadius: 16,
     paddingHorizontal: spacing.md,
-    height: 44,
+    height: 46,
+    borderWidth: 1,
+    borderColor: theme.glass.border,
   },
   searchIcon: {
-    fontSize: 16,
     marginRight: spacing.sm,
   },
   searchInput: {
@@ -402,72 +451,84 @@ const styles = StyleSheet.create({
   },
   typeFilters: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.sm,
-    paddingBottom: spacing.md,
     gap: spacing.sm,
+    paddingRight: spacing.md,
   },
   filterButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: 20,
+    borderRadius: 18,
     backgroundColor: theme.glass.tint.neutral,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   filterButtonActive: {
-    backgroundColor: theme.accent.primary + '30',
+    backgroundColor: theme.accent.primary + '25',
     borderColor: theme.accent.primary,
   },
   filterIcon: {
-    fontSize: 14,
     marginRight: spacing.xs,
   },
   filterLabel: {
     color: theme.text.secondary,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   filterLabelActive: {
     color: theme.accent.primary,
     fontWeight: '600',
   },
   list: {
-    padding: spacing.md,
-    paddingBottom: 100,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 120,
   },
   emptyList: {
     flexGrow: 1,
+    paddingHorizontal: spacing.lg,
   },
   noteCard: {
-    backgroundColor: theme.glass.tint.neutral,
-    borderRadius: 16,
+    backgroundColor: theme.background.secondary,
+    borderRadius: 20,
     padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: theme.glass.border,
+    borderColor: theme.border.primary,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
+  noteCardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  noteIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: theme.glass.tint.neutral,
+    borderWidth: 1,
+    borderColor: theme.glass.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  noteIcon: {
+  },
+  noteBody: {
+    flex: 1,
+  },
   noteHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  noteHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  noteIcon: {
-    fontSize: 20,
-    marginRight: spacing.sm,
+    marginBottom: 6,
+    gap: spacing.sm,
   },
   noteTitle: {
     flex: 1,
@@ -478,7 +539,8 @@ const styles = StyleSheet.create({
   noteDate: {
     color: theme.text.muted,
     fontSize: 11,
-    marginLeft: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   notePreview: {
     color: theme.text.secondary,
@@ -491,25 +553,44 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     marginBottom: spacing.sm,
   },
+  entityIndicatorItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: spacing.xs,
+  },
   entityIndicatorText: {
     color: theme.text.tertiary,
     fontSize: 11,
+  },
+  entityIndicatorSeparator: {
+    color: theme.text.tertiary,
+    fontSize: 11,
+    marginLeft: spacing.xs,
   },
   noteMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  noteMetaLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   tagRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    flexWrap: 'wrap',
   },
   tag: {
     backgroundColor: theme.accent.primary + '20',
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 10,
     marginRight: spacing.xs,
   },
   tagText: {
@@ -521,6 +602,24 @@ const styles = StyleSheet.create({
     color: theme.text.muted,
     fontSize: 11,
   },
+  noteTypeBadge: {
+    backgroundColor: theme.glass.tint.neutral,
+    borderWidth: 1,
+    borderColor: theme.glass.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  noteTypeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  noteTypeText: {
+    color: theme.text.secondary,
+    fontSize: 11,
+    fontWeight: '600',
+  },
   wordCount: {
     color: theme.text.muted,
     fontSize: 11,
@@ -530,10 +629,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.xl,
-  },
-  emptyIcon: {
-    fontSize: 80,
-    marginBottom: spacing.lg,
   },
   emptyTitle: {
     color: theme.text.primary,
@@ -555,7 +650,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accent.primary,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
-    borderRadius: 12,
+    borderRadius: 14,
   },
   createButtonText: {
     color: theme.background.primary,
@@ -566,7 +661,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.glass.tint.neutral,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: theme.border.primary,
   },
@@ -587,9 +682,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: spacing.lg + 8,
     bottom: 24 + 80,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 58,
+    height: 58,
+    borderRadius: 22,
     backgroundColor: theme.accent.primary,
     justifyContent: 'center',
     alignItems: 'center',

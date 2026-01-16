@@ -26,6 +26,7 @@ import { Directory } from 'expo-file-system';
 import DirectoryPickerModal from '../components/DirectoryPickerModal';
 import Toast from '../components/Toast';
 import theme from '../theme/colors';
+import AppIcon from '../components/icons/AppIcon';
 
 // App version - should match package.json
 const APP_VERSION = '1.0.0';
@@ -50,7 +51,10 @@ const MigrationWarningModal: React.FC<MigrationModalProps> = ({
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.modalOverlay}>
         <View style={styles.migrationModal}>
-          <Text style={styles.migrationTitle}>⚠️ Boards Detected</Text>
+          <View style={styles.migrationTitleRow}>
+            <AppIcon name="alert" size={18} color={theme.accent.warning} />
+            <Text style={styles.migrationTitle}>Boards Detected</Text>
+          </View>
           <Text style={styles.migrationMessage}>
             Your current directory contains {boardCount} board{boardCount !== 1 ? 's' : ''}.
             {'\n\n'}
@@ -61,7 +65,10 @@ const MigrationWarningModal: React.FC<MigrationModalProps> = ({
             style={[styles.migrationButton, styles.migrationButtonPrimary]}
             onPress={onMigrateAndChange}
           >
-            <Text style={styles.migrationButtonText}>📦 Migrate & Change</Text>
+            <View style={styles.migrationButtonContent}>
+              <AppIcon name="box" size={16} color={theme.text.primary} />
+              <Text style={styles.migrationButtonText}>Migrate & Change</Text>
+            </View>
             <Text style={styles.migrationButtonSubtext}>
               Copy boards to new location and switch
             </Text>
@@ -71,7 +78,10 @@ const MigrationWarningModal: React.FC<MigrationModalProps> = ({
             style={[styles.migrationButton, styles.migrationButtonSecondary]}
             onPress={onChangeOnly}
           >
-            <Text style={styles.migrationButtonText}>🔀 Change Only</Text>
+            <View style={styles.migrationButtonContent}>
+              <AppIcon name="shuffle" size={16} color={theme.accent.primary} />
+              <Text style={styles.migrationButtonText}>Change Only</Text>
+            </View>
             <Text style={styles.migrationButtonSubtext}>
               Switch without copying (boards stay in old location)
             </Text>
@@ -538,7 +548,9 @@ export default function SettingsScreen() {
               <Text style={styles.customBadge}>Custom</Text>
             )}
           </View>
-          <Text style={styles.chevron}>›</Text>
+          <View style={styles.chevron}>
+            <AppIcon name="arrow-right" size={16} color={theme.text.muted} />
+          </View>
         </TouchableOpacity>
 
         <View style={styles.settingItem}>
@@ -562,7 +574,9 @@ export default function SettingsScreen() {
             disabled={isLoading}
           >
             <Text style={styles.settingLabel}>Reset to Default Directory</Text>
-            <Text style={styles.chevron}>›</Text>
+            <View style={styles.chevron}>
+              <AppIcon name="arrow-right" size={16} color={theme.text.muted} />
+            </View>
           </TouchableOpacity>
         )}
 
@@ -572,7 +586,9 @@ export default function SettingsScreen() {
           disabled={isLoading}
         >
           <Text style={styles.settingLabel}>Clear Cache</Text>
-          <Text style={styles.chevron}>›</Text>
+          <View style={styles.chevron}>
+            <AppIcon name="arrow-right" size={16} color={theme.text.muted} />
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -624,7 +640,9 @@ export default function SettingsScreen() {
             {calendarSyncing ? (
               <ActivityIndicator size="small" color={theme.accent.primary} />
             ) : (
-              <Text style={styles.chevron}>›</Text>
+              <View style={styles.chevron}>
+                <AppIcon name="arrow-right" size={16} color={theme.text.muted} />
+              </View>
             )}
           </TouchableOpacity>
         ) : (
@@ -636,7 +654,7 @@ export default function SettingsScreen() {
                   Connected
                 </Text>
               </View>
-              <Text style={styles.connectedBadge}>✓</Text>
+              <AppIcon name="check" size={16} color={theme.accent.success} />
             </View>
 
             <View style={styles.settingItem}>
@@ -672,7 +690,9 @@ export default function SettingsScreen() {
               {calendarSyncing ? (
                 <ActivityIndicator size="small" color={theme.accent.primary} />
               ) : (
-                <Text style={styles.chevron}>›</Text>
+                <View style={styles.chevron}>
+                  <AppIcon name="arrow-right" size={16} color={theme.text.muted} />
+                </View>
               )}
             </TouchableOpacity>
 
@@ -684,7 +704,9 @@ export default function SettingsScreen() {
               <Text style={[styles.settingLabel, styles.dangerText]}>
                 Disconnect
               </Text>
-              <Text style={styles.chevron}>›</Text>
+              <View style={styles.chevron}>
+                <AppIcon name="arrow-right" size={16} color={theme.text.muted} />
+              </View>
             </TouchableOpacity>
           </>
         )}
@@ -722,9 +744,12 @@ export default function SettingsScreen() {
         <Text style={styles.sectionTitle}>Data Management</Text>
 
         <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            📁 Your boards are stored as markdown files. Sync them across devices using:
-          </Text>
+          <View style={styles.infoRow}>
+            <AppIcon name="folder" size={14} color={theme.text.secondary} />
+            <Text style={styles.infoText}>
+              Your boards are stored as markdown files. Sync them across devices using:
+            </Text>
+          </View>
           <Text style={styles.infoText}>• iCloud Drive</Text>
           <Text style={styles.infoText}>• Dropbox</Text>
           <Text style={styles.infoText}>• Google Drive</Text>
@@ -753,7 +778,9 @@ export default function SettingsScreen() {
 
         <TouchableOpacity style={styles.settingItem} onPress={handleAbout}>
           <Text style={styles.settingLabel}>App Information</Text>
-          <Text style={styles.chevron}>›</Text>
+          <View style={styles.chevron}>
+            <AppIcon name="arrow-right" size={16} color={theme.text.muted} />
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -870,9 +897,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   chevron: {
-    fontSize: 24,
-    color: theme.text.muted,
-    fontWeight: '300',
+    width: 20,
+    alignItems: 'flex-end',
   },
   disabledText: {
     fontSize: 14,
@@ -885,11 +911,6 @@ const styles = StyleSheet.create({
     color: theme.accent.success,
     fontWeight: '600',
   },
-  connectedBadge: {
-    color: theme.accent.success,
-    fontSize: 18,
-    fontWeight: '600',
-  },
   infoBox: {
     backgroundColor: theme.background.secondary,
     padding: 16,
@@ -897,6 +918,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: theme.border.secondary,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
   },
   infoText: {
     fontSize: 14,
@@ -933,11 +959,17 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
   },
+  migrationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
   migrationTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: theme.text.primary,
-    marginBottom: 12,
     textAlign: 'center',
   },
   migrationMessage: {
@@ -952,6 +984,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
+  migrationButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   migrationButtonPrimary: {
     backgroundColor: theme.button.primary.background,
   },
@@ -965,8 +1004,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: theme.text.primary,
-    textAlign: 'center',
-    marginBottom: 4,
   },
   migrationButtonSubtext: {
     fontSize: 13,

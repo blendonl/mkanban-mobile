@@ -8,10 +8,11 @@ import {
 import { Column } from '../../domain/entities/Column';
 import BaseModal from './BaseModal';
 import theme from '../theme';
+import AppIcon, { AppIconName } from './icons/AppIcon';
 
 interface ActionItem {
   id: string;
-  icon: string;
+  icon: AppIconName;
   label: string;
   onPress: () => void;
   disabled?: boolean;
@@ -52,27 +53,27 @@ export default function ColumnActionsModal({
   const actions: ActionItem[] = [
     {
       id: 'rename',
-      icon: '✏️',
+      icon: 'edit',
       label: 'Rename Column',
       onPress: onRename,
     },
     {
       id: 'move-left',
-      icon: '⬅️',
+      icon: 'arrow-left',
       label: 'Move Left',
       onPress: onMoveLeft,
       disabled: !canMoveLeft,
     },
     {
       id: 'move-right',
-      icon: '➡️',
+      icon: 'arrow-right',
       label: 'Move Right',
       onPress: onMoveRight,
       disabled: !canMoveRight,
     },
     {
       id: 'clear',
-      icon: '🗑️',
+      icon: 'trash',
       label: 'Clear All Tasks',
       onPress: onClearTasks,
       disabled: taskCount === 0,
@@ -81,7 +82,7 @@ export default function ColumnActionsModal({
     },
     {
       id: 'move-all',
-      icon: '📤',
+      icon: 'export',
       label: 'Move All Tasks',
       onPress: onMoveAllTasks,
       disabled: taskCount === 0,
@@ -89,7 +90,7 @@ export default function ColumnActionsModal({
     },
     {
       id: 'delete',
-      icon: '❌',
+      icon: 'trash',
       label: 'Delete Column',
       onPress: onDelete,
       disabled: !canDelete,
@@ -131,7 +132,13 @@ export default function ColumnActionsModal({
           activeOpacity={theme.ui.PRESSED_OPACITY}
         >
           <View style={styles.actionContent}>
-            <Text style={styles.actionIcon}>{action.icon}</Text>
+            <View style={styles.actionIcon}>
+              <AppIcon
+                name={action.icon}
+                size={18}
+                color={action.destructive ? theme.accent.error : theme.text.secondary}
+              />
+            </View>
             <Text
               style={[
                 styles.actionLabel,
@@ -204,7 +211,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actionIcon: {
-    fontSize: 20,
     marginRight: theme.spacing.md,
   },
   actionLabel: {

@@ -6,8 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  StatusBar,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   useRoute,
   useNavigation,
@@ -42,14 +43,57 @@ type ProjectDetailNavProp = StackNavigationProp<
   "ProjectDetail"
 >;
 
+const normalizeHexColor = (color: string) => {
+  if (!color.startsWith("#")) {
+    return null;
+  }
+
+  if (color.length === 4) {
+    const [r, g, b] = color.slice(1).split("");
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+
+  if (color.length === 7) {
+    return color;
+  }
+
+  return null;
+};
+
+const withOpacity = (color: string, opacityHex: string) => {
+  const normalized = normalizeHexColor(color);
+  if (!normalized) {
+    return color;
+  }
+
+  return `${normalized}${opacityHex}`;
+};
+
+const isLightColor = (color: string) => {
+  const normalized = normalizeHexColor(color);
+  if (!normalized) {
+    return false;
+  }
+
+  const hex = normalized.slice(1);
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.64;
+};
+
 export default function ProjectDetailScreen() {
   const route = useRoute<ProjectDetailRouteProp>();
   const navigation = useNavigation<ProjectDetailNavProp>();
   const { projectId } = route.params;
+  const insets = useSafeAreaInsets();
 
   const [project, setProject] = useState<Project | null>(null);
   const [boards, setBoards] = useState<Board[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [boardCount, setBoardCount] = useState(0);
+  const [noteCount, setNoteCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -61,6 +105,7 @@ export default function ProjectDetailScreen() {
 
       const boardService = getBoardService();
       const projectBoards = await boardService.getBoardsByProject(projectId);
+      setBoardCount(projectBoards.length);
       setBoards(projectBoards.slice(0, 3));
 
       const noteService = getNoteService();
@@ -68,6 +113,7 @@ export default function ProjectDetailScreen() {
       const sortedNotes = projectNotes.sort(
         (a, b) => b.updated_at.getTime() - a.updated_at.getTime(),
       );
+      setNoteCount(sortedNotes.length);
       setNotes(sortedNotes.slice(0, 3));
     } catch (error) {
       console.error("Failed to load project:", error);
@@ -96,8 +142,8 @@ export default function ProjectDetailScreen() {
     switch (status) {
       case "active":
         return theme.accent.success;
-      case "paused":
-        return theme.accent.warning;
+      case "completed":
+        return theme.accent.info;
       case "archived":
         return theme.text.muted;
       default:
@@ -158,46 +204,92 @@ export default function ProjectDetailScreen() {
   }
 
   const statusColor = getStatusColor(project.status);
+  const updatedLabel = project.updated_at
+    ? project.updated_at.toLocaleDateString()
+    : "Unknown";
+  const projectColor = project.color || theme.accent.primary;
+  const statusBarStyle = isLightColor(projectColor)
+    ? "dark-content"
+    : "light-content";
+  const heroBackground = theme.background.primary;
+  const heroPaddingTop = Math.max(spacing.md, insets.top);
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
-      <ScrollView
-        contentContainerStyle={styles.contentContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={theme.accent.primary}
-          />
-        }
-      >
-        <GlassCard style={styles.headerCard} tint="blue">
-          <View style={styles.headerContent}>
-            <View
-              style={[styles.colorBadge, { backgroundColor: project.color }]}
-            >
-              <ProjectsIcon size={24} focused />
-            </View>
-            <View style={styles.headerInfo}>
-              <Text style={styles.projectName}>{project.name}</Text>
-              {project.description ? (
-                <Text style={styles.projectDescription} numberOfLines={2}>
-                  {project.description}
-                </Text>
-              ) : null}
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: statusColor + "20" },
-                ]}
-              >
-                <Text style={[styles.statusText, { color: statusColor }]}>
-                  {project.status}
-                </Text>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background.primary }]}
+      edges={["top"]}
+    >
+      <StatusBar
+        backgroundColor={theme.background.primary}
+        barStyle={statusBarStyle}
+      />
+      <View style={styles.body}>
+        <ScrollView
+          contentContainerStyle={styles.contentContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.accent.primary}
+            />
+          }
+        >
+          <View
+            style={[
+              styles.hero,
+              {
+                backgroundColor: heroBackground,
+                paddingTop: heroPaddingTop,
+              },
+            ]}
+          >
+            <GlassCard style={styles.headerCard} tint="neutral" intensity={26}>
+              <View style={styles.headerContent}>
+                <View
+                  style={[styles.colorBadge, { backgroundColor: projectColor }]}
+                >
+                  <ProjectsIcon size={24} focused />
+                </View>
+                <View style={styles.headerInfo}>
+                  <Text style={styles.projectName}>{project.name}</Text>
+                  {project.description ? (
+                    <Text style={styles.projectDescription} numberOfLines={2}>
+                      {project.description}
+                    </Text>
+                  ) : null}
+                  <View style={styles.metaRow}>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        { backgroundColor: statusColor + "20" },
+                      ]}
+                    >
+                      <Text style={[styles.statusText, { color: statusColor }]}>
+                        {project.status}
+                      </Text>
+                    </View>
+                    <Text style={styles.updatedText}>
+                      Updated {updatedLabel}
+                    </Text>
+                  </View>
+                </View>
               </View>
+            </GlassCard>
+          </View>
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{boardCount}</Text>
+              <Text style={styles.statLabel}>Boards</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{noteCount}</Text>
+              <Text style={styles.statLabel}>Notes</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>0h</Text>
+              <Text style={styles.statLabel}>This week</Text>
             </View>
           </View>
-        </GlassCard>
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -219,24 +311,31 @@ export default function ProjectDetailScreen() {
                 onPress={() => handleBoardPress(board)}
               >
                 <GlassCard style={styles.itemCard}>
-                  <View style={styles.itemContent}>
-                    <BoardsIcon size={20} focused={false} />
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemTitle}>{board.name}</Text>
-                      <Text style={styles.itemSubtitle}>
-                        {board.columns.length} columns
-                      </Text>
-                    </View>
+              <View style={styles.itemContent}>
+                <View style={styles.itemIcon}>
+                  <BoardsIcon size={20} focused={false} />
+                </View>
+                <View style={styles.itemInfo}>
+                  <Text style={styles.itemTitle}>{board.name}</Text>
+                  <Text style={styles.itemSubtitle}>
+                    {board.columns.length} columns
+                  </Text>
+                </View>
                     <ChevronRightIcon size={18} focused={false} />
                   </View>
                 </GlassCard>
               </TouchableOpacity>
             ))
           ) : (
-            <GlassCard style={styles.emptySection}>
+            <GlassCard style={[styles.itemCard, styles.emptySection]}>
               <View style={styles.emptySectionContent}>
-                <BoardsIcon size={32} focused={false} />
+                <View style={styles.emptyIcon}>
+                  <BoardsIcon size={28} focused={false} />
+                </View>
                 <Text style={styles.emptySectionTitle}>No boards yet</Text>
+                <Text style={styles.emptySectionSubtitle}>
+                  Start with a lightweight board to map work.
+                </Text>
                 <TouchableOpacity onPress={handleNewBoard} activeOpacity={0.7}>
                   <Text style={styles.emptySectionAction}>Create Board</Text>
                 </TouchableOpacity>
@@ -245,7 +344,7 @@ export default function ProjectDetailScreen() {
           )}
         </View>
 
-        <View style={styles.section}>
+        <View style={[styles.section, styles.notesSection]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <NotesIcon size={18} focused />
@@ -265,14 +364,16 @@ export default function ProjectDetailScreen() {
                 onPress={() => handleNotePress(note)}
               >
                 <GlassCard style={styles.itemCard}>
-                  <View style={styles.itemContent}>
-                    <NotesIcon size={20} focused={false} />
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemTitle}>{note.title}</Text>
-                      <Text style={styles.itemSubtitle} numberOfLines={1}>
-                        {note.preview || note.content.substring(0, 100)}
-                      </Text>
-                    </View>
+              <View style={styles.itemContent}>
+                <View style={styles.itemIcon}>
+                  <NotesIcon size={20} focused={false} />
+                </View>
+                <View style={styles.itemInfo}>
+                  <Text style={styles.itemTitle}>{note.title}</Text>
+                  <Text style={styles.itemSubtitle} numberOfLines={1}>
+                    {note.preview || note.content.substring(0, 100)}
+                  </Text>
+                </View>
                     <ChevronRightIcon size={18} focused={false} />
                   </View>
                 </GlassCard>
@@ -281,8 +382,13 @@ export default function ProjectDetailScreen() {
           ) : (
             <GlassCard style={styles.emptySection}>
               <View style={styles.emptySectionContent}>
-                <NotesIcon size={32} focused={false} />
+                <View style={styles.emptyIcon}>
+                  <NotesIcon size={28} focused={false} />
+                </View>
                 <Text style={styles.emptySectionTitle}>No notes yet</Text>
+                <Text style={styles.emptySectionSubtitle}>
+                  Capture decisions, links, and quick updates here.
+                </Text>
                 <TouchableOpacity onPress={handleNewNote} activeOpacity={0.7}>
                   <Text style={styles.emptySectionAction}>Create Note</Text>
                 </TouchableOpacity>
@@ -300,11 +406,17 @@ export default function ProjectDetailScreen() {
           </View>
           <GlassCard style={styles.timeCard} tint="purple">
             <View style={styles.timeContent}>
-              <TimeIcon size={32} focused />
+              <View style={styles.itemIcon}>
+                <TimeIcon size={26} focused />
+              </View>
               <View style={styles.timeInfo}>
                 <Text style={styles.timeValue}>0h 0m</Text>
                 <Text style={styles.timeLabel}>tracked this week</Text>
               </View>
+              <View style={styles.timeSpacer} />
+              <TouchableOpacity activeOpacity={0.7}>
+                <Text style={styles.timeAction}>Log time</Text>
+              </TouchableOpacity>
             </View>
           </GlassCard>
         </View>
@@ -317,7 +429,7 @@ export default function ProjectDetailScreen() {
           </View>
           <View style={styles.actionsRow}>
             <TouchableOpacity
-              style={styles.actionButton}
+              style={styles.actionCard}
               onPress={handleNewBoard}
               activeOpacity={0.7}
             >
@@ -327,12 +439,13 @@ export default function ProjectDetailScreen() {
                   { backgroundColor: theme.accent.primary + "20" },
                 ]}
               >
-                <BoardsIcon size={24} focused />
+                <BoardsIcon size={22} focused />
               </View>
-              <Text style={styles.actionLabel}>New Board</Text>
+              <Text style={styles.actionTitle}>New Board</Text>
+              <Text style={styles.actionSubtitle}>Plan workflow</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.actionButton}
+              style={styles.actionCard}
               onPress={handleNewNote}
               activeOpacity={0.7}
             >
@@ -342,12 +455,13 @@ export default function ProjectDetailScreen() {
                   { backgroundColor: theme.accent.secondary + "20" },
                 ]}
               >
-                <NotesIcon size={24} focused />
+                <NotesIcon size={22} focused />
               </View>
-              <Text style={styles.actionLabel}>New Note</Text>
+              <Text style={styles.actionTitle}>New Note</Text>
+              <Text style={styles.actionSubtitle}>Capture ideas</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.actionButton}
+              style={styles.actionCard}
               onPress={handleSchedule}
               activeOpacity={0.7}
             >
@@ -357,13 +471,15 @@ export default function ProjectDetailScreen() {
                   { backgroundColor: theme.accent.warning + "20" },
                 ]}
               >
-                <AgendaIcon size={24} focused />
+                <AgendaIcon size={22} focused />
               </View>
-              <Text style={styles.actionLabel}>Schedule</Text>
+              <Text style={styles.actionTitle}>Schedule</Text>
+              <Text style={styles.actionSubtitle}>Block time</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -371,10 +487,13 @@ export default function ProjectDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  body: {
+    flex: 1,
     backgroundColor: theme.background.primary,
   },
   contentContainer: {
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
   loadingText: {
     color: theme.text.secondary,
@@ -386,9 +505,21 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: spacing.xl,
   },
-  headerCard: {
-    marginHorizontal: spacing.lg,
+  hero: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    borderWidth: 0,
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: spacing.md,
     marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  headerCard: {
+    marginTop: spacing.sm,
   },
   headerContent: {
     flexDirection: "row",
@@ -407,7 +538,7 @@ const styles = StyleSheet.create({
   },
   projectName: {
     color: theme.text.primary,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "700",
   },
   projectDescription: {
@@ -416,21 +547,57 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     lineHeight: 20,
   },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: spacing.sm,
+    gap: spacing.sm,
+  },
   statusBadge: {
     alignSelf: "flex-start",
     paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 6,
-    marginTop: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
   statusText: {
     fontSize: 11,
     fontWeight: "600",
     textTransform: "uppercase",
   },
+  updatedText: {
+    color: theme.text.tertiary,
+    fontSize: 12,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: theme.background.elevated,
+    borderRadius: 16,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+  },
+  statValue: {
+    color: theme.text.primary,
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  statLabel: {
+    color: theme.text.tertiary,
+    fontSize: 12,
+    marginTop: 4,
+  },
   section: {
     marginTop: spacing.xl,
     paddingHorizontal: spacing.lg,
+  },
+  notesSection: {
+    marginTop: spacing.lg,
+    marginHorizontal: spacing.lg,
+    paddingHorizontal: 0,
+    paddingVertical: spacing.lg,
+    borderRadius: 24,
+    borderWidth: 0,
   },
   sectionHeader: {
     flexDirection: "row",
@@ -460,6 +627,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  itemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   itemInfo: {
     flex: 1,
     marginLeft: spacing.md,
@@ -476,15 +653,34 @@ const styles = StyleSheet.create({
   },
   emptySection: {
     alignItems: "center",
+    width: "100%",
+    alignSelf: "stretch",
   },
   emptySectionContent: {
     alignItems: "center",
     paddingVertical: spacing.md,
+    width: "100%",
+  },
+  emptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    justifyContent: "center",
+    alignItems: "center",
   },
   emptySectionTitle: {
     color: theme.text.muted,
     fontSize: 14,
     marginTop: spacing.sm,
+  },
+  emptySectionSubtitle: {
+    color: theme.text.tertiary,
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: "center",
   },
   emptySectionAction: {
     color: theme.accent.primary,
@@ -498,6 +694,7 @@ const styles = StyleSheet.create({
   timeContent: {
     flexDirection: "row",
     alignItems: "center",
+    width: "100%",
   },
   timeInfo: {
     marginLeft: spacing.lg,
@@ -512,13 +709,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: spacing.xs,
   },
+  timeSpacer: {
+    flex: 1,
+  },
+  timeAction: {
+    color: theme.accent.primary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
   actionsRow: {
     flexDirection: "row",
-    justifyContent: "space-around",
+    gap: spacing.md,
   },
-  actionButton: {
+  actionCard: {
+    flex: 1,
+    backgroundColor: theme.background.elevated,
+    borderRadius: 16,
+    paddingVertical: spacing.md,
     alignItems: "center",
-    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
   },
   actionIconContainer: {
     width: 56,
@@ -528,9 +738,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: spacing.sm,
   },
-  actionLabel: {
-    color: theme.text.secondary,
-    fontSize: 12,
-    fontWeight: "500",
+  actionTitle: {
+    color: theme.text.primary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  actionSubtitle: {
+    color: theme.text.tertiary,
+    fontSize: 11,
+    marginTop: 2,
   },
 });

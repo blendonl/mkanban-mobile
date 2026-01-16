@@ -4,6 +4,7 @@ import { ScheduledAgendaItem } from '../../services/AgendaService';
 import { OrphanedItemBadge } from './OrphanedItemBadge';
 import { TimeBlockBar } from './TimeBlockBar';
 import { theme } from '../theme/colors';
+import AppIcon, { AppIconName } from './icons/AppIcon';
 
 interface AgendaItemCardProps {
   scheduledItem: ScheduledAgendaItem;
@@ -18,25 +19,25 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
 }) => {
   const { agendaItem, task, projectName, boardName, columnName, isOrphaned } = scheduledItem;
 
-  const getTaskTypeIcon = () => {
+  const getTaskTypeIcon = (): AppIconName => {
     switch (agendaItem.task_type) {
       case 'meeting':
-        return '👥';
+        return 'users';
       case 'milestone':
-        return '🎯';
+        return 'milestone';
       default:
-        return '📋';
+        return 'task';
     }
   };
 
-  const getTaskTypeColor = () => {
+  const getTaskTypeMeta = () => {
     switch (agendaItem.task_type) {
       case 'meeting':
-        return '#10B981';
+        return { label: 'Meeting', color: theme.accent.success };
       case 'milestone':
-        return '#8B5CF6';
+        return { label: 'Milestone', color: theme.accent.secondary };
       default:
-        return '#3B82F6';
+        return { label: 'Task', color: theme.accent.primary };
     }
   };
 
@@ -58,26 +59,32 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   };
 
   const taskTitle = task?.title || agendaItem.task_id;
-  const typeColor = getTaskTypeColor();
+  const typeMeta = getTaskTypeMeta();
+  const timeLabel = formatTime(agendaItem.scheduled_time);
 
   return (
     <TouchableOpacity
-      style={[styles.card, { borderLeftColor: typeColor }]}
+      style={[styles.card, { borderLeftColor: typeMeta.color }]}
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={0.7}
     >
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.icon}>{getTaskTypeIcon()}</Text>
-          <Text style={[styles.title, isOrphaned && styles.titleOrphaned]} numberOfLines={2}>
-            {taskTitle}
-          </Text>
+          <View style={[styles.typeBadge, { backgroundColor: `${typeMeta.color}22` }]}>
+            <AppIcon name={getTaskTypeIcon()} size={16} color={typeMeta.color} />
+          </View>
+          <View style={styles.titleBlock}>
+            <Text style={[styles.title, isOrphaned && styles.titleOrphaned]} numberOfLines={2}>
+              {taskTitle}
+            </Text>
+            <Text style={styles.typeLabel}>{typeMeta.label}</Text>
+          </View>
         </View>
-        {agendaItem.scheduled_time && (
-          <Text style={styles.time}>
-            {formatTime(agendaItem.scheduled_time)}
-          </Text>
+        {timeLabel && (
+          <View style={styles.timeBadge}>
+            <Text style={styles.timeText}>{timeLabel}</Text>
+          </View>
         )}
       </View>
 
@@ -92,47 +99,51 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
           {projectName} / {boardName}
         </Text>
         {columnName && !isOrphaned && (
-          <Text style={styles.columnBadge}>{columnName}</Text>
+          <View style={styles.columnBadge}>
+            <Text style={styles.columnBadgeText}>{columnName}</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.detailsRow}>
+        {agendaItem.duration_minutes && (
+          <View style={styles.detailChip}>
+            <AppIcon name="clock" size={12} color={theme.text.secondary} />
+            <Text style={styles.detailChipText}>
+              {formatDuration(agendaItem.duration_minutes)}
+            </Text>
+          </View>
+        )}
+        {agendaItem.meeting_data?.location && (
+          <View style={styles.detailChip}>
+            <AppIcon name="pin" size={12} color={theme.text.secondary} />
+            <Text style={styles.detailChipText} numberOfLines={1}>
+              {agendaItem.meeting_data.location}
+            </Text>
+          </View>
+        )}
+        {agendaItem.meeting_data?.attendees && agendaItem.meeting_data.attendees.length > 0 && (
+          <View style={styles.detailChip}>
+            <AppIcon name="users" size={12} color={theme.text.secondary} />
+            <Text style={styles.detailChipText}>
+              {agendaItem.meeting_data.attendees.length} {agendaItem.meeting_data.attendees.length === 1 ? 'person' : 'people'}
+            </Text>
+          </View>
         )}
       </View>
 
       {agendaItem.duration_minutes && (
-        <>
-          <View style={styles.durationContainer}>
-            <Text style={styles.durationText}>
-              ⏱️ {formatDuration(agendaItem.duration_minutes)}
-            </Text>
-          </View>
-          <TimeBlockBar
-            taskType={agendaItem.task_type}
-            durationMinutes={agendaItem.duration_minutes}
-            maxDurationMinutes={120}
-          />
-        </>
-      )}
-
-      {agendaItem.meeting_data?.location && (
-        <View style={styles.locationContainer}>
-          <Text style={styles.locationText} numberOfLines={1}>
-            📍 {agendaItem.meeting_data.location}
-          </Text>
-        </View>
-      )}
-
-      {agendaItem.meeting_data?.attendees && agendaItem.meeting_data.attendees.length > 0 && (
-        <View style={styles.attendeesContainer}>
-          <Text style={styles.attendeesText}>
-            👥 {agendaItem.meeting_data.attendees.length} {agendaItem.meeting_data.attendees.length === 1 ? 'person' : 'people'}
-          </Text>
-        </View>
+        <TimeBlockBar
+          taskType={agendaItem.task_type}
+          durationMinutes={agendaItem.duration_minutes}
+          maxDurationMinutes={120}
+        />
       )}
 
       {task?.description && (
-        <View style={styles.descriptionContainer}>
-          <Text style={styles.descriptionText} numberOfLines={1}>
-            {task.description}
-          </Text>
-        </View>
+        <Text style={styles.descriptionText} numberOfLines={1}>
+          {task.description}
+        </Text>
       )}
     </TouchableOpacity>
   );
@@ -142,8 +153,8 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.card.background,
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    padding: 14,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: theme.card.border,
     borderLeftWidth: 4,
@@ -157,19 +168,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   titleRow: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+    alignItems: 'center',
+    gap: 10,
   },
-  icon: {
-    fontSize: 20,
+  typeBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleBlock: {
+    flex: 1,
   },
   title: {
-    flex: 1,
     fontSize: 16,
     fontWeight: '600',
     color: theme.text.primary,
@@ -178,11 +195,23 @@ const styles = StyleSheet.create({
     color: theme.text.tertiary,
     textDecorationLine: 'line-through',
   },
-  time: {
-    fontSize: 14,
+  typeLabel: {
+    fontSize: 12,
+    color: theme.text.tertiary,
+    marginTop: 2,
+  },
+  timeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+  },
+  timeText: {
+    fontSize: 12,
     fontWeight: '600',
-    color: theme.accent.primary,
-    marginLeft: 8,
+    color: theme.text.primary,
   },
   orphanedBadgeContainer: {
     marginBottom: 8,
@@ -191,7 +220,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   metadataText: {
     flex: 1,
@@ -199,44 +228,43 @@ const styles = StyleSheet.create({
     color: theme.text.tertiary,
   },
   columnBadge: {
-    fontSize: 10,
-    color: theme.text.secondary,
-    backgroundColor: theme.background.elevated,
     paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
     marginLeft: 8,
   },
-  durationContainer: {
-    marginTop: 4,
+  columnBadgeText: {
+    fontSize: 10,
+    color: theme.text.secondary,
+    fontWeight: '600',
   },
-  durationText: {
+  detailsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 6,
+  },
+  detailChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+  },
+  detailChipText: {
     fontSize: 12,
     color: theme.text.secondary,
-  },
-  locationContainer: {
-    marginTop: 4,
-  },
-  locationText: {
-    fontSize: 12,
-    color: theme.text.secondary,
-  },
-  attendeesContainer: {
-    marginTop: 4,
-  },
-  attendeesText: {
-    fontSize: 12,
-    color: theme.text.secondary,
-  },
-  descriptionContainer: {
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: theme.border.primary,
   },
   descriptionText: {
+    marginTop: 6,
     fontSize: 12,
     color: theme.text.tertiary,
-    fontStyle: 'italic',
   },
 });

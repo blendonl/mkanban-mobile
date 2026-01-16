@@ -24,14 +24,15 @@ import AutoSaveIndicator, { SaveStatus } from '../../components/AutoSaveIndicato
 import EntityChip from '../../components/EntityChip';
 import EntityPicker from '../../components/EntityPicker';
 import { ProjectId, BoardId, TaskId } from '../../../core/types';
+import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 
 type NoteEditorRouteProp = RouteProp<NotesStackParamList, 'NoteEditor'>;
 type NoteEditorNavProp = StackNavigationProp<NotesStackParamList, 'NoteEditor'>;
 
-const NOTE_TYPES: { value: NoteType; label: string; icon: string }[] = [
-  { value: 'general', label: 'Note', icon: '📝' },
-  { value: 'meeting', label: 'Meeting', icon: '👥' },
-  { value: 'daily', label: 'Daily', icon: '📅' },
+const NOTE_TYPES: { value: NoteType; label: string; icon: AppIconName }[] = [
+  { value: 'general', label: 'Note', icon: 'note' },
+  { value: 'meeting', label: 'Meeting', icon: 'users' },
+  { value: 'daily', label: 'Daily', icon: 'calendar' },
 ];
 
 export default function NoteEditorScreen() {
@@ -309,7 +310,11 @@ export default function NoteEditorScreen() {
                     onPress={() => setNoteType(type.value)}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.typeIcon}>{type.icon}</Text>
+                    <AppIcon
+                      name={type.icon}
+                      size={16}
+                      color={noteType === type.value ? theme.background.primary : theme.text.secondary}
+                    />
                     <Text style={[
                       styles.typeLabel,
                       noteType === type.value && styles.typeLabelActive,
@@ -492,10 +497,6 @@ const styles = StyleSheet.create({
   typeButtonActive: {
     borderColor: theme.accent.primary,
     backgroundColor: theme.accent.primary + '20',
-  },
-  typeIcon: {
-    fontSize: 20,
-    marginRight: spacing.sm,
   },
   typeLabel: {
     color: theme.text.primary,

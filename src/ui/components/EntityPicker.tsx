@@ -17,6 +17,7 @@ import { getProjectService, getBoardService, getTaskService } from '../../core/D
 import { Project } from '../../domain/entities/Project';
 import { Board } from '../../domain/entities/Board';
 import { Task } from '../../domain/entities/Task';
+import AppIcon, { AppIconName } from './icons/AppIcon';
 
 type Tab = 'projects' | 'boards' | 'tasks';
 
@@ -184,7 +185,7 @@ export default function EntityPicker({
 
   const renderEntityItem = ({ item }: { item: Entity }) => {
     const selected = isSelected(item);
-    const icon = item.type === 'project' ? '📁' : item.type === 'board' ? '📋' : '✓';
+    const icon: AppIconName = item.type === 'project' ? 'folder' : item.type === 'board' ? 'board' : 'check';
 
     return (
       <TouchableOpacity
@@ -192,11 +193,15 @@ export default function EntityPicker({
         onPress={() => toggleEntity(item)}
       >
         <View style={styles.entityItemLeft}>
-          <Text style={styles.entityIcon}>{icon}</Text>
+          <View style={styles.entityIcon}>
+            <AppIcon name={icon} size={18} color={theme.text.secondary} />
+          </View>
           <Text style={styles.entityName} numberOfLines={1}>{item.name}</Text>
         </View>
         <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
-          {selected && <Text style={styles.checkmark}>✓</Text>}
+          {selected && (
+            <AppIcon name="check" size={14} color={theme.background.primary} />
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -243,7 +248,9 @@ export default function EntityPicker({
           </View>
 
           <View style={styles.searchContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <View style={styles.searchIcon}>
+              <AppIcon name="search" size={16} color={theme.text.muted} />
+            </View>
             <TextInput
               style={styles.searchInput}
               placeholder="Search..."
@@ -344,7 +351,6 @@ const styles = StyleSheet.create({
     height: 44,
   },
   searchIcon: {
-    fontSize: 16,
     marginRight: spacing.sm,
   },
   searchInput: {
@@ -382,7 +388,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   entityIcon: {
-    fontSize: 16,
     marginRight: spacing.sm,
   },
   entityName: {
@@ -402,11 +407,6 @@ const styles = StyleSheet.create({
   checkboxSelected: {
     backgroundColor: theme.accent.primary,
     borderColor: theme.accent.primary,
-  },
-  checkmark: {
-    color: theme.background.primary,
-    fontSize: 14,
-    fontWeight: '700',
   },
   emptyState: {
     padding: spacing.xl,

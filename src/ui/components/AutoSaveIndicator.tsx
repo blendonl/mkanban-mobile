@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Animated } from 'react-native';
 import theme from '../theme/colors';
+import AppIcon, { AppIconName } from './icons/AppIcon';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -43,13 +44,13 @@ export default function AutoSaveIndicator({ status }: AutoSaveIndicatorProps) {
         return {
           text: 'Saved',
           color: theme.accent.success,
-          icon: '✓',
+          icon: 'check' as AppIconName,
         };
       case 'error':
         return {
           text: 'Error saving',
           color: theme.accent.error,
-          icon: '⚠',
+          icon: 'alert' as AppIconName,
         };
       default:
         return null;
@@ -64,7 +65,11 @@ export default function AutoSaveIndicator({ status }: AutoSaveIndicatorProps) {
       {status === 'saving' ? (
         <ActivityIndicator size="small" color={config.color} />
       ) : (
-        config.icon && <Text style={[styles.icon, { color: config.color }]}>{config.icon}</Text>
+        config.icon && (
+          <View style={styles.icon}>
+            <AppIcon name={config.icon} size={16} color={config.color} />
+          </View>
+        )
       )}
       <Text style={[styles.text, { color: config.color }]}>{config.text}</Text>
     </Animated.View>
@@ -87,7 +92,6 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   icon: {
-    fontSize: 16,
     marginRight: 6,
   },
   text: {

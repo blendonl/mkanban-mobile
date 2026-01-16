@@ -27,6 +27,7 @@ import ParentFormModal from "../components/ParentFormModal";
 import ColumnFormModal from "../components/ColumnFormModal";
 import ColumnActionsModal from "../components/ColumnActionsModal";
 import AddColumnCard from "../components/AddColumnCard";
+import AppIcon from "../components/icons/AppIcon";
 import { Parent } from "../../domain/entities/Parent";
 import { ParentColor } from "../../core/enums";
 import { generateIdFromName, now } from "../../utils";
@@ -101,15 +102,25 @@ export default function BoardScreen({ navigation, route }: Props) {
             style={styles.headerButton}
             onPress={() => setShowParentManagement(true)}
           >
-            <Text style={styles.headerButtonText}>🏷️ Parents</Text>
+            <View style={styles.headerButtonContent}>
+              <AppIcon name="tag" size={14} color={theme.text.primary} />
+              <Text style={styles.headerButtonText}>Parents</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={() => setShowParentGroups(!showParentGroups)}
           >
-            <Text style={styles.headerButtonText}>
-              {showParentGroups ? "📋 List" : "📁 Groups"}
-            </Text>
+            <View style={styles.headerButtonContent}>
+              <AppIcon
+                name={showParentGroups ? "list" : "folder"}
+                size={14}
+                color={theme.text.primary}
+              />
+              <Text style={styles.headerButtonText}>
+                {showParentGroups ? "List" : "Groups"}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
       ),
@@ -606,6 +617,11 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
     backgroundColor: "rgba(255, 255, 255, 0.2)",
     borderRadius: theme.radius.button,
+  },
+  headerButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.xs,
   },
   headerButtonText: {
     color: theme.header.text,

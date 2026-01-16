@@ -14,6 +14,7 @@ import {
   ModalProps,
 } from 'react-native';
 import theme from '../theme';
+import AppIcon from './icons/AppIcon';
 
 export interface BaseModalProps extends Partial<ModalProps> {
   visible: boolean;
@@ -56,7 +57,7 @@ export default function BaseModal({
             <Text style={styles.title}>{title}</Text>
             {showCloseButton && (
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Text style={styles.closeButtonText}>✕</Text>
+                <AppIcon name="close" size={18} color={theme.text.secondary} />
               </TouchableOpacity>
             )}
           </View>
@@ -105,10 +106,6 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: theme.spacing.xs,
-  },
-  closeButtonText: {
-    fontSize: theme.typography.fontSizes.xxxl,
-    color: theme.text.secondary,
   },
   content: {
     padding: theme.spacing.modalPadding.vertical,

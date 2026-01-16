@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { File, Directory } from 'expo-file-system';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import theme from '../theme';
+import AppIcon from './icons/AppIcon';
 import alertService from '../../services/AlertService';
 import logger from '../../utils/logger';
 import { StoragePermission, getDefaultExternalBoardsPath } from '../../infrastructure/storage/StoragePermission';
@@ -261,7 +262,10 @@ export default function DirectoryPickerModal({
                 onPress={handleSelectExternalStorage}
                 disabled={isProcessing || isPicking}
               >
-                <Text style={styles.quickOptionText}>📱 External Storage</Text>
+                <View style={styles.quickOptionRow}>
+                  <AppIcon name="device" size={16} color={theme.text.primary} />
+                  <Text style={styles.quickOptionText}>External Storage</Text>
+                </View>
                 <Text style={styles.quickOptionPath}>{externalStoragePath}</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -269,7 +273,10 @@ export default function DirectoryPickerModal({
                 onPress={() => setSelectedPath(defaultPath)}
                 disabled={isProcessing || isPicking}
               >
-                <Text style={styles.quickOptionText}>📦 App Internal Storage</Text>
+                <View style={styles.quickOptionRow}>
+                  <AppIcon name="box" size={16} color={theme.text.primary} />
+                  <Text style={styles.quickOptionText}>App Internal Storage</Text>
+                </View>
                 <Text style={styles.quickOptionPath}>{defaultPath}</Text>
               </TouchableOpacity>
             </View>
@@ -285,9 +292,10 @@ export default function DirectoryPickerModal({
               {isPicking ? (
                 <ActivityIndicator color={theme.button.primary.text} />
               ) : (
-                <Text style={styles.browseButtonText}>
-                  📁 Browse Other Folders
-                </Text>
+                <View style={styles.browseButtonContent}>
+                  <AppIcon name="folder-open" size={16} color={theme.text.primary} />
+                  <Text style={styles.browseButtonText}>Browse Other Folders</Text>
+                </View>
               )}
             </TouchableOpacity>
             <Text style={styles.helperText}>
@@ -297,7 +305,10 @@ export default function DirectoryPickerModal({
 
           {/* Warning */}
           <View style={styles.warningBox}>
-            <Text style={styles.warningTitle}>⚠️ Important Notes</Text>
+            <View style={styles.warningTitleRow}>
+              <AppIcon name="alert" size={16} color={theme.accent.warning} />
+              <Text style={styles.warningTitle}>Important Notes</Text>
+            </View>
             <Text style={styles.warningText}>
               • Changing the directory will not automatically move your existing boards
             </Text>
@@ -382,11 +393,16 @@ const styles = StyleSheet.create({
     borderColor: theme.card.border,
     marginBottom: theme.spacing.sm,
   },
+  quickOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginBottom: 4,
+  },
   quickOptionText: {
     ...theme.typography.textStyles.body,
     fontWeight: theme.typography.fontWeights.semibold,
     color: theme.text.primary,
-    marginBottom: 4,
   },
   quickOptionPath: {
     ...theme.typography.textStyles.caption,
@@ -400,6 +416,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: theme.ui.FAB_SIZE,
+  },
+  browseButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
   },
   browseButtonText: {
     ...theme.typography.textStyles.body,
@@ -419,6 +440,11 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: '#ffc107',
+  },
+  warningTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
   },
   warningTitle: {
     ...theme.typography.textStyles.body,

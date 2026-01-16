@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ParentColor } from '../../core/enums';
 import theme from '../theme/colors';
+import AppIcon from './icons/AppIcon';
 
 interface ColorPickerProps {
   selectedColor: ParentColor;
@@ -36,7 +37,7 @@ export default function ColorPicker({ selectedColor, onColorSelect }: ColorPicke
               onPress={() => onColorSelect(option.value)}
               activeOpacity={0.7}
             >
-              {isSelected && <Text style={styles.checkmark}>✓</Text>}
+              {isSelected && <AppIcon name="check" size={20} color={theme.background.primary} />}
             </TouchableOpacity>
           );
         })}
@@ -72,10 +73,5 @@ const styles = StyleSheet.create({
   selectedOption: {
     borderColor: theme.text.primary,
     transform: [{ scale: 1.1 }],
-  },
-  checkmark: {
-    color: theme.background.primary,
-    fontSize: 24,
-    fontWeight: 'bold',
   },
 });

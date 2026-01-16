@@ -15,14 +15,15 @@ import { getAgendaService } from '../../../core/DependencyContainer';
 import { ScheduledAgendaItem, DayAgenda } from '../../../services/AgendaService';
 import { AgendaStackParamList } from '../../navigation/TabNavigator';
 import { TimeBlockBar } from '../../components/TimeBlockBar';
+import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 
 type AgendaDayRouteProp = RouteProp<AgendaStackParamList, 'AgendaDay'>;
 type AgendaDayNavProp = StackNavigationProp<AgendaStackParamList, 'AgendaDay'>;
 
-const TASK_TYPE_ICONS = {
-  regular: '📋',
-  meeting: '👥',
-  milestone: '🎯',
+const TASK_TYPE_ICONS: Record<string, AppIconName> = {
+  regular: 'task',
+  meeting: 'users',
+  milestone: 'milestone',
 };
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -102,6 +103,11 @@ export default function AgendaDayScreen() {
     return `${hour - 12} PM`;
   };
 
+  const isCurrentDay = () => {
+    const today = new Date();
+    return new Date(date).toDateString() === today.toDateString();
+  };
+
   const renderTaskCard = (item: ScheduledAgendaItem, compact: boolean = false) => {
     const { agendaItem, task, boardName, isOrphaned } = item;
     const icon = TASK_TYPE_ICONS[agendaItem.task_type];
@@ -115,7 +121,9 @@ export default function AgendaDayScreen() {
         onPress={() => navigation.navigate('AgendaItemDetail', { agendaItemId: agendaItem.id })}
       >
         <View style={styles.taskCardLeft}>
-          <Text style={styles.taskIcon}>{icon}</Text>
+          <View style={styles.taskIconBadge}>
+            <AppIcon name={icon} size={14} color={theme.text.secondary} />
+          </View>
         </View>
         <View style={styles.taskCardContent}>
           <Text style={[styles.taskTitle, isOrphaned && styles.taskTitleOrphaned]} numberOfLines={1}>
@@ -136,9 +144,12 @@ export default function AgendaDayScreen() {
           )}
         </View>
         {agendaItem.task_type === 'meeting' && agendaItem.meeting_data?.location && (
-          <Text style={styles.taskLocation} numberOfLines={1}>
-            📍 {agendaItem.meeting_data.location}
-          </Text>
+          <View style={styles.taskLocation}>
+            <AppIcon name="pin" size={14} color={theme.text.tertiary} />
+            <Text style={styles.taskLocationText} numberOfLines={1}>
+              {agendaItem.meeting_data.location}
+            </Text>
+          </View>
         )}
       </TouchableOpacity>
     );
@@ -147,16 +158,28 @@ export default function AgendaDayScreen() {
   const renderTimeSlot = (hour: number) => {
     const tasks = getTasksForHour(hour);
     const hasTask = tasks.length > 0;
+    const isCurrentHour = isCurrentDay() && new Date().getHours() === hour;
 
     return (
       <View key={hour} style={styles.timeSlot}>
         <View style={styles.timeLabel}>
-          <Text style={[styles.timeLabelText, hasTask && styles.timeLabelTextActive]}>
+          <Text
+            style={[
+              styles.timeLabelText,
+              hasTask && styles.timeLabelTextActive,
+              isCurrentHour && styles.timeLabelTextCurrent,
+            ]}
+          >
             {formatHour(hour)}
           </Text>
         </View>
         <View style={styles.timeContent}>
-          <View style={[styles.timeLine, hasTask && styles.timeLineActive]} />
+          <View style={[
+            styles.timeLine,
+            hasTask && styles.timeLineActive,
+            isCurrentHour && styles.timeLineCurrent,
+          ]} />
+          {isCurrentHour && <View style={styles.currentHourDot} />}
           {tasks.map(task => renderTaskCard(task, true))}
         </View>
       </View>
@@ -191,7 +214,10 @@ export default function AgendaDayScreen() {
     >
       {unscheduledTasks.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>All Day</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>All day</Text>
+            <Text style={styles.sectionCount}>{unscheduledTasks.length}</Text>
+          </View>
           {unscheduledTasks.map(task => renderTaskCard(task))}
         </View>
       )}
@@ -202,9 +228,9 @@ export default function AgendaDayScreen() {
 
       {!hasScheduledTasks && unscheduledTasks.length === 0 && (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📅</Text>
-          <Text style={styles.emptyTitle}>No tasks for this day</Text>
-          <Text style={styles.emptySubtitle}>Tasks scheduled for this date will appear here</Text>
+          <AppIcon name="calendar" size={28} color={theme.text.muted} />
+          <Text style={styles.emptyTitle}>Nothing scheduled yet</Text>
+          <Text style={styles.emptySubtitle}>Add tasks to your agenda to see them here.</Text>
         </View>
       )}
 
@@ -228,13 +254,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.border.primary,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
   sectionTitle: {
     color: theme.text.secondary,
     fontSize: 13,
     fontWeight: '600',
-    marginBottom: spacing.sm,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  sectionCount: {
+    color: theme.text.muted,
+    fontSize: 12,
+    backgroundColor: theme.background.elevated,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 10,
   },
   timeline: {
     paddingTop: spacing.sm,
@@ -256,6 +295,9 @@ const styles = StyleSheet.create({
   timeLabelTextActive: {
     color: theme.text.secondary,
   },
+  timeLabelTextCurrent: {
+    color: theme.accent.primary,
+  },
   timeContent: {
     flex: 1,
     borderLeftWidth: 1,
@@ -276,6 +318,20 @@ const styles = StyleSheet.create({
   timeLineActive: {
     backgroundColor: theme.accent.primary,
   },
+  timeLineCurrent: {
+    backgroundColor: theme.accent.primary,
+  },
+  currentHourDot: {
+    position: 'absolute',
+    left: -7,
+    top: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: theme.accent.primary,
+    borderWidth: 2,
+    borderColor: theme.background.primary,
+  },
   taskCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -283,6 +339,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: spacing.md,
     marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.card.border,
   },
   taskCardCompact: {
     marginTop: spacing.xs,
@@ -295,8 +353,15 @@ const styles = StyleSheet.create({
   taskCardLeft: {
     marginRight: spacing.sm,
   },
-  taskIcon: {
-    fontSize: 18,
+  taskIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
   },
   taskCardContent: {
     flex: 1,
@@ -327,19 +392,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     paddingVertical: 1,
     borderRadius: 4,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
   },
   taskLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 140,
+  },
+  taskLocationText: {
     color: theme.text.secondary,
     fontSize: 12,
-    maxWidth: 100,
+    flexShrink: 1,
   },
   emptyState: {
     alignItems: 'center',
     padding: spacing.xxl,
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: spacing.md,
   },
   emptyTitle: {
     color: theme.text.primary,

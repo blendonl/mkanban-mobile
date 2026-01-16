@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  ScrollView,
   Alert,
 } from 'react-native';
 import { Project } from '../../domain/entities/Project';
@@ -14,6 +13,7 @@ import { Task, TaskType } from '../../domain/entities/Task';
 import { ProjectId, BoardId, TaskId } from '../../core/types';
 import BaseModal from './BaseModal';
 import theme from '../theme';
+import AppIcon from './icons/AppIcon';
 
 interface AgendaItemFormModalProps {
   visible: boolean;
@@ -63,6 +63,20 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
   const [taskType, setTaskType] = useState<TaskType>('regular');
   const [location, setLocation] = useState('');
   const [attendees, setAttendees] = useState('');
+
+  const stepIndex = {
+    project: 1,
+    board: 2,
+    task: 3,
+    details: 4,
+  }[step];
+
+  const stepTitle = {
+    project: 'Project',
+    board: 'Board',
+    task: 'Task',
+    details: 'Details',
+  }[step];
 
   useEffect(() => {
     if (visible) {
@@ -171,16 +185,22 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
     }
   };
 
+  const renderStepHeader = (title: string, subtitle?: string) => (
+    <>
+      <Text style={styles.stepIndicator}>Step {stepIndex} of 4</Text>
+      <Text style={styles.stepTitle}>{title}</Text>
+      {subtitle ? <Text style={styles.stepSubtitle}>{subtitle}</Text> : null}
+    </>
+  );
+
   const renderProjectStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Select Project</Text>
-      <Text style={{ color: 'red', fontSize: 16, marginBottom: 10 }}>
-        DEBUG: Projects count: {projects.length}
-      </Text>
+      {renderStepHeader('Select Project')}
       {projects.length === 0 && (
-        <Text style={{ color: theme.text.secondary, textAlign: 'center', marginTop: 20 }}>
-          No projects found. Please create a project first.
-        </Text>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyStateTitle}>No projects yet</Text>
+          <Text style={styles.emptyStateText}>Create a project first, then schedule tasks.</Text>
+        </View>
       )}
       {projects.map(project => (
         <TouchableOpacity
@@ -188,12 +208,14 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           style={styles.listItem}
           onPress={() => handleProjectSelect(project)}
         >
-          <View style={[styles.colorBadge, { backgroundColor: project.color }]} />
-          <View style={styles.listItemContent}>
-            <Text style={styles.listItemTitle}>{project.name}</Text>
-            <Text style={styles.listItemSubtitle}>{project.status}</Text>
+          <View style={styles.listItemRow}>
+            <View style={[styles.colorBadge, { backgroundColor: project.color }]} />
+            <View style={styles.listItemContent}>
+              <Text style={styles.listItemTitle}>{project.name}</Text>
+              <Text style={styles.listItemSubtitle}>{project.status}</Text>
+            </View>
           </View>
-          <Text style={styles.arrow}>›</Text>
+          <AppIcon name="arrow-right" size={14} color={theme.text.muted} />
         </TouchableOpacity>
       ))}
     </View>
@@ -202,10 +224,12 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
   const renderBoardStep = () => (
     <View style={styles.stepContainer}>
       <TouchableOpacity style={styles.backButton} onPress={() => setStep('project')}>
-        <Text style={styles.backButtonText}>‹ Back to Projects</Text>
+        <View style={styles.backButtonContent}>
+          <AppIcon name="arrow-left" size={14} color={theme.accent.primary} />
+          <Text style={styles.backButtonText}>Back to Projects</Text>
+        </View>
       </TouchableOpacity>
-      <Text style={styles.stepTitle}>Select Board</Text>
-      <Text style={styles.stepSubtitle}>{selectedProject?.name}</Text>
+      {renderStepHeader('Select Board', selectedProject?.name)}
       {loading ? (
         <Text style={styles.loadingText}>Loading boards...</Text>
       ) : (
@@ -221,7 +245,7 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
                 {board.columns.reduce((sum, col) => sum + col.tasks.length, 0)} tasks
               </Text>
             </View>
-            <Text style={styles.arrow}>›</Text>
+            <AppIcon name="arrow-right" size={14} color={theme.text.muted} />
           </TouchableOpacity>
         ))
       )}
@@ -229,19 +253,27 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
   );
 
   const renderTaskStep = () => {
-    const allTasks: Task[] = [];
+    const allTasks: { task: Task; columnName: string }[] = [];
     selectedBoard?.columns.forEach(column => {
-      column.tasks.forEach(task => allTasks.push(task));
+      column.tasks.forEach(task => allTasks.push({ task, columnName: column.name }));
     });
 
     return (
       <View style={styles.stepContainer}>
         <TouchableOpacity style={styles.backButton} onPress={() => setStep('board')}>
-          <Text style={styles.backButtonText}>‹ Back to Boards</Text>
+        <View style={styles.backButtonContent}>
+          <AppIcon name="arrow-left" size={14} color={theme.accent.primary} />
+          <Text style={styles.backButtonText}>Back to Boards</Text>
+        </View>
         </TouchableOpacity>
-        <Text style={styles.stepTitle}>Select Task</Text>
-        <Text style={styles.stepSubtitle}>{selectedBoard?.name}</Text>
-        {allTasks.map(task => (
+        {renderStepHeader('Select Task', selectedBoard?.name)}
+        {allTasks.length === 0 && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateTitle}>No tasks yet</Text>
+            <Text style={styles.emptyStateText}>Add tasks to this board to schedule them.</Text>
+          </View>
+        )}
+        {allTasks.map(({ task, columnName }) => (
           <TouchableOpacity
             key={task.id}
             style={styles.listItem}
@@ -249,9 +281,9 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           >
             <View style={styles.listItemContent}>
               <Text style={styles.listItemTitle} numberOfLines={1}>{task.title}</Text>
-              <Text style={styles.listItemSubtitle}>{task.column_id}</Text>
+              <Text style={styles.listItemSubtitle}>{columnName}</Text>
             </View>
-            <Text style={styles.arrow}>›</Text>
+            <AppIcon name="arrow-right" size={14} color={theme.text.muted} />
           </TouchableOpacity>
         ))}
       </View>
@@ -261,10 +293,12 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
   const renderDetailsStep = () => (
     <View style={styles.stepContainer}>
       <TouchableOpacity style={styles.backButton} onPress={() => setStep('task')}>
-        <Text style={styles.backButtonText}>‹ Back to Tasks</Text>
+        <View style={styles.backButtonContent}>
+          <AppIcon name="arrow-left" size={14} color={theme.accent.primary} />
+          <Text style={styles.backButtonText}>Back to Tasks</Text>
+        </View>
       </TouchableOpacity>
-      <Text style={styles.stepTitle}>Schedule Details</Text>
-      <Text style={styles.stepSubtitle}>{selectedTask?.title}</Text>
+      {renderStepHeader('Schedule Details', selectedTask?.title)}
 
       <View style={styles.formSection}>
         <Text style={styles.label}>Date</Text>
@@ -273,6 +307,9 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           value={date}
           onChangeText={setDate}
           placeholder="YYYY-MM-DD"
+          keyboardType="numbers-and-punctuation"
+          autoCapitalize="none"
+          autoCorrect={false}
           placeholderTextColor={theme.text.tertiary}
         />
       </View>
@@ -284,6 +321,9 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           value={time}
           onChangeText={setTime}
           placeholder="HH:MM"
+          keyboardType="numbers-and-punctuation"
+          autoCapitalize="none"
+          autoCorrect={false}
           placeholderTextColor={theme.text.tertiary}
         />
       </View>
@@ -295,7 +335,7 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           value={duration?.toString() || ''}
           onChangeText={(text) => setDuration(text ? parseInt(text) : undefined)}
           placeholder="60"
-          keyboardType="numeric"
+          keyboardType="number-pad"
           placeholderTextColor={theme.text.tertiary}
         />
       </View>
@@ -312,14 +352,21 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
               ]}
               onPress={() => setTaskType(type)}
             >
-              <Text style={[
-                styles.taskTypeText,
-                taskType === type && styles.taskTypeTextActive,
-              ]}>
-                {type === 'regular' && '📋 Regular'}
-                {type === 'meeting' && '👥 Meeting'}
-                {type === 'milestone' && '🎯 Milestone'}
-              </Text>
+              <View style={styles.taskTypeContent}>
+                <AppIcon
+                  name={type === 'regular' ? 'task' : type === 'meeting' ? 'users' : 'milestone'}
+                  size={16}
+                  color={taskType === type ? theme.background.primary : theme.text.secondary}
+                />
+                <Text style={[
+                  styles.taskTypeText,
+                  taskType === type && styles.taskTypeTextActive,
+                ]}>
+                  {type === 'regular' && 'Regular'}
+                  {type === 'meeting' && 'Meeting'}
+                  {type === 'milestone' && 'Milestone'}
+                </Text>
+              </View>
             </TouchableOpacity>
           ))}
         </View>
@@ -345,6 +392,8 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
               value={attendees}
               onChangeText={setAttendees}
               placeholder="person@example.com, person2@example.com"
+              autoCapitalize="none"
+              autoCorrect={false}
               placeholderTextColor={theme.text.tertiary}
             />
           </View>
@@ -361,7 +410,7 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
     <BaseModal
       visible={visible}
       onClose={onClose}
-      title="Schedule Task"
+      title={`Schedule ${stepTitle}`}
       scrollable={true}
     >
       {step === 'project' && renderProjectStep()}
@@ -382,6 +431,13 @@ const styles = StyleSheet.create({
     color: theme.text.primary,
     marginBottom: 4,
   },
+  stepIndicator: {
+    fontSize: 12,
+    color: theme.text.tertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
   stepSubtitle: {
     fontSize: 14,
     color: theme.text.tertiary,
@@ -389,6 +445,11 @@ const styles = StyleSheet.create({
   },
   backButton: {
     marginBottom: 12,
+  },
+  backButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   backButtonText: {
     fontSize: 16,
@@ -404,12 +465,18 @@ const styles = StyleSheet.create({
   listItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 12,
     backgroundColor: theme.card.background,
     borderRadius: 8,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.card.border,
+  },
+  listItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   colorBadge: {
     width: 12,
@@ -430,10 +497,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.text.tertiary,
   },
-  arrow: {
-    fontSize: 24,
-    color: theme.text.tertiary,
-    marginLeft: 8,
+  emptyState: {
+    paddingVertical: 24,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.primary,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.text.primary,
+    marginBottom: 6,
+  },
+  emptyStateText: {
+    fontSize: 13,
+    color: theme.text.secondary,
+    textAlign: 'center',
   },
   formSection: {
     marginBottom: 16,
@@ -469,6 +552,11 @@ const styles = StyleSheet.create({
   taskTypeButtonActive: {
     backgroundColor: theme.accent.primary,
     borderColor: theme.accent.primary,
+  },
+  taskTypeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   taskTypeText: {
     fontSize: 14,

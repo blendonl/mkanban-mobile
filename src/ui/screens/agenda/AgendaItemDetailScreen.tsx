@@ -13,9 +13,9 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AgendaStackParamList } from '../../navigation/TabNavigator';
 import { getAgendaService, getBoardService, getProjectService } from '../../../core/DependencyContainer';
 import { ScheduledAgendaItem } from '../../../services/AgendaService';
-import { AgendaItem } from '../../../domain/entities/AgendaItem';
 import { OrphanedItemBadge } from '../../components/OrphanedItemBadge';
 import { theme } from '../../theme/colors';
+import AppIcon from '../../components/icons/AppIcon';
 
 import { Screen } from '../../components/Screen';
 
@@ -219,24 +219,31 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Schedule</Text>
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Date:</Text>
-          <Text style={styles.value}>{agendaItem.scheduled_date}</Text>
+          <Text style={styles.label}>Date</Text>
+          <Text style={styles.valueStrong}>{agendaItem.scheduled_date}</Text>
         </View>
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Time:</Text>
-          <Text style={styles.value}>{formatTime(agendaItem.scheduled_time)}</Text>
+          <Text style={styles.label}>Time</Text>
+          <Text style={styles.valueStrong}>{formatTime(agendaItem.scheduled_time)}</Text>
         </View>
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Duration:</Text>
-          <Text style={styles.value}>{formatDuration(agendaItem.duration_minutes)}</Text>
+          <Text style={styles.label}>Duration</Text>
+          <Text style={styles.valueStrong}>{formatDuration(agendaItem.duration_minutes)}</Text>
         </View>
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Type:</Text>
-          <Text style={styles.value}>
-            {agendaItem.task_type === 'meeting' && '👥 Meeting'}
-            {agendaItem.task_type === 'milestone' && '🎯 Milestone'}
-            {agendaItem.task_type === 'regular' && '📋 Regular'}
-          </Text>
+          <Text style={styles.label}>Type</Text>
+          <View style={styles.typeBadge}>
+            <AppIcon
+              name={agendaItem.task_type === 'meeting' ? 'users' : agendaItem.task_type === 'milestone' ? 'milestone' : 'task'}
+              size={14}
+              color={theme.text.secondary}
+            />
+            <Text style={styles.typeBadgeText}>
+              {agendaItem.task_type === 'meeting' && 'Meeting'}
+              {agendaItem.task_type === 'milestone' && 'Milestone'}
+              {agendaItem.task_type === 'regular' && 'Regular'}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -263,24 +270,24 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Source</Text>
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Project:</Text>
-          <Text style={styles.value}>{projectName}</Text>
+          <Text style={styles.label}>Project</Text>
+          <Text style={styles.valueStrong}>{projectName}</Text>
         </View>
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Board:</Text>
-          <Text style={styles.value}>{boardName}</Text>
+          <Text style={styles.label}>Board</Text>
+          <Text style={styles.valueStrong}>{boardName}</Text>
         </View>
         {columnName && (
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Column:</Text>
-            <Text style={styles.value}>{columnName}</Text>
+            <Text style={styles.label}>Column</Text>
+            <Text style={styles.valueStrong}>{columnName}</Text>
           </View>
         )}
       </View>
 
       {!isOrphaned && task && (
-        <TouchableOpacity style={styles.actionButton} onPress={handleNavigateToTask}>
-          <Text style={styles.actionButtonText}>View Task Details</Text>
+        <TouchableOpacity style={styles.primaryButton} onPress={handleNavigateToTask}>
+          <Text style={styles.primaryButtonText}>View Task Details</Text>
         </TouchableOpacity>
       )}
 
@@ -325,11 +332,17 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
 
       <View style={styles.actions}>
         <TouchableOpacity style={styles.rescheduleButton} onPress={handleReschedule}>
-          <Text style={styles.rescheduleButtonText}>📅 Reschedule</Text>
+          <View style={styles.actionButtonContent}>
+            <AppIcon name="calendar" size={16} color={theme.accent.primary} />
+            <Text style={styles.rescheduleButtonText}>Reschedule</Text>
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-          <Text style={styles.deleteButtonText}>🗑️ Delete</Text>
+          <View style={styles.actionButtonContent}>
+            <AppIcon name="trash" size={16} color={theme.accent.error} />
+            <Text style={styles.deleteButtonText}>Delete</Text>
+          </View>
         </TouchableOpacity>
       </View>
     </Screen>
@@ -403,19 +416,40 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.text.primary,
   },
+  valueStrong: {
+    fontSize: 14,
+    color: theme.text.primary,
+    fontWeight: '600',
+  },
+  typeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+  },
+  typeBadgeText: {
+    fontSize: 12,
+    color: theme.text.secondary,
+    fontWeight: '600',
+  },
   attendee: {
     fontSize: 14,
     color: theme.text.primary,
     marginTop: 4,
   },
-  actionButton: {
+  primaryButton: {
     backgroundColor: theme.accent.primary,
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 16,
   },
-  actionButtonText: {
+  primaryButtonText: {
     fontSize: 16,
     fontWeight: '700',
     color: theme.background.primary,
@@ -465,6 +499,12 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
     marginBottom: 32,
+  },
+  actionButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   rescheduleButton: {
     flex: 1,

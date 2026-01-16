@@ -4,27 +4,28 @@
  */
 
 import { IssueType } from '../core/enums';
+import { AppIconName } from '../ui/components/icons/AppIcon';
 
 /**
- * Mapping of issue types to their emoji icons
+ * Mapping of issue types to their icon names
  */
-export const ISSUE_TYPE_ICONS: Record<string, string> = {
-  [IssueType.EPIC]: '📚',
-  [IssueType.STORY]: '📖',
-  [IssueType.BUG]: '🐛',
-  [IssueType.SUBTASK]: '☑️',
-  [IssueType.TASK]: '📋',
+export const ISSUE_TYPE_ICONS: Record<string, AppIconName> = {
+  [IssueType.EPIC]: 'epic',
+  [IssueType.STORY]: 'story',
+  [IssueType.BUG]: 'bug',
+  [IssueType.SUBTASK]: 'subtask',
+  [IssueType.TASK]: 'task',
   // Fallback for unknown types
-  default: '📄',
+  default: 'file',
 } as const;
 
 /**
  * Get the icon for a specific issue type
  * Handles case-insensitive matching and partial matches
  * @param issueType - The issue type string
- * @returns The corresponding emoji icon
+ * @returns The corresponding icon name
  */
-export function getIssueTypeIcon(issueType: string): string {
+export function getIssueTypeIcon(issueType: string): AppIconName {
   if (!issueType) {
     return ISSUE_TYPE_ICONS.default;
   }
@@ -83,6 +84,5 @@ export function isValidIssueType(issueType: string): boolean {
  * @returns Formatted label with icon
  */
 export function getIssueTypeLabel(issueType: string): string {
-  const icon = getIssueTypeIcon(issueType);
-  return `${icon} ${issueType}`;
+  return issueType;
 }

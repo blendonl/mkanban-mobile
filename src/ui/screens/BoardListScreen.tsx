@@ -18,6 +18,7 @@ import theme from "../theme";
 import alertService from "../../services/AlertService";
 import logger from "../../utils/logger";
 import { BoardStackParamList } from "../navigation/TabNavigator";
+import AppIcon from "../components/icons/AppIcon";
 
 type BoardListScreenNavigationProp = StackNavigationProp<
   BoardStackParamList,
@@ -212,7 +213,7 @@ export default function BoardListScreen({ navigation }: Props) {
           style={styles.settingsButton}
           onPress={() => navigation.navigate("Settings")}
         >
-          <Text style={styles.settingsIcon}>⚙</Text>
+          <AppIcon name="settings" size={18} color={theme.text.secondary} />
         </TouchableOpacity>
       </View>
 
@@ -290,10 +291,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: theme.glass.border,
-  },
-  settingsIcon: {
-    fontSize: 18,
-    color: theme.text.secondary,
   },
   projectBanner: {
     flexDirection: "row",
