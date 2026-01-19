@@ -166,7 +166,27 @@ export class ActionEngine {
       const results: ExecutionResult[] = [];
 
       for (const executor of action.actions) {
+        if (!executor) {
+          const missingResult: ExecutionResult = {
+            success: false,
+            error: 'Missing executor configuration',
+          };
+          results.push(missingResult);
+          console.error('Executor failed: missing executor configuration');
+          continue;
+        }
+
         const result = await this.executeActionExecutor(executor, context);
+        if (!result) {
+          const missingResult: ExecutionResult = {
+            success: false,
+            error: `Executor returned no result for type "${executor.type}"`,
+          };
+          results.push(missingResult);
+          console.error(`Executor failed: ${missingResult.error}`);
+          continue;
+        }
+
         results.push(result);
 
         if (!result.success) {

@@ -2,7 +2,7 @@ const { withMainApplication, withDangerousMod } = require('expo/config-plugins')
 const fs = require('fs');
 const path = require('path');
 
-const STORAGE_PERMISSION_MODULE = `package com.mkanban.mobile
+const STORAGE_PERMISSION_MODULE = `package com.mkanban.mprojectmanager
 
 import android.os.Build
 import android.os.Environment
@@ -229,7 +229,7 @@ class StoragePermissionModule(reactContext: ReactApplicationContext) :
 }
 `;
 
-const STORAGE_PERMISSION_PACKAGE = `package com.mkanban.mobile
+const STORAGE_PERMISSION_PACKAGE = `package com.mkanban.mprojectmanager
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
@@ -254,7 +254,7 @@ function withStoragePermissionFiles(config) {
       const projectRoot = config.modRequest.projectRoot;
       const packagePath = path.join(
         projectRoot,
-        'android/app/src/main/java/com/mkanban/mobile'
+        'android/app/src/main/java/com/mkanban/mprojectmanager'
       );
 
       fs.mkdirSync(packagePath, { recursive: true });
