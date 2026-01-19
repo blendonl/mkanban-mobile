@@ -19,6 +19,9 @@ export interface AgendaItemProps {
   created_at?: Timestamp;
   updated_at?: Timestamp;
   file_path?: FilePath | null;
+  actual_value?: number | null;
+  unfinished_at?: Timestamp | null;
+  is_unfinished?: boolean;
 }
 
 export class AgendaItem {
@@ -38,6 +41,9 @@ export class AgendaItem {
   created_at: Timestamp;
   updated_at: Timestamp;
   file_path: FilePath | null;
+  actual_value: number | null;
+  unfinished_at: Timestamp | null;
+  is_unfinished: boolean;
 
   constructor(props: AgendaItemProps) {
     this.id = props.id || `agenda-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -61,6 +67,9 @@ export class AgendaItem {
     this.updated_at = updated instanceof Date ? updated : new Date(updated);
 
     this.file_path = props.file_path !== undefined ? props.file_path : null;
+    this.actual_value = props.actual_value !== undefined ? props.actual_value : null;
+    this.unfinished_at = props.unfinished_at !== undefined ? props.unfinished_at : null;
+    this.is_unfinished = props.is_unfinished !== undefined ? props.is_unfinished : false;
   }
 
   get scheduledDateTime(): Date | null {
@@ -101,6 +110,23 @@ export class AgendaItem {
     this.updated_at = now();
   }
 
+  markAsUnfinished(): void {
+    this.is_unfinished = true;
+    this.unfinished_at = now();
+    this.updated_at = now();
+  }
+
+  clearUnfinished(): void {
+    this.is_unfinished = false;
+    this.unfinished_at = null;
+    this.updated_at = now();
+  }
+
+  updateActualValue(value: number): void {
+    this.actual_value = value;
+    this.updated_at = now();
+  }
+
   update(updates: Partial<AgendaItemProps>): void {
     Object.entries(updates).forEach(([key, value]) => {
       if (key !== 'id' && key !== 'created_at') {
@@ -132,6 +158,12 @@ export class AgendaItem {
     result.notification_id = this.notification_id;
     result.is_recurring = this.is_recurring;
 
+    if (this.actual_value !== null) result.actual_value = this.actual_value;
+    result.unfinished_at = this.unfinished_at instanceof Date
+      ? this.unfinished_at.toISOString()
+      : this.unfinished_at;
+    result.is_unfinished = this.is_unfinished;
+
     return result;
   }
 
@@ -160,6 +192,9 @@ export class AgendaItem {
       created_at: parseDate(data.created_at),
       updated_at: parseDate(data.updated_at),
       file_path: data.file_path,
+      actual_value: data.actual_value || null,
+      unfinished_at: parseDate(data.unfinished_at) || null,
+      is_unfinished: data.is_unfinished || false,
     });
   }
 }

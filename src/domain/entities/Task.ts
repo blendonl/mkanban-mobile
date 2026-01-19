@@ -9,6 +9,7 @@ import { now } from "../../utils/dateUtils";
 import { generateIdFromName, getSafeFilename } from "../../utils/stringUtils";
 
 export type TaskType = 'regular' | 'meeting' | 'milestone';
+export type TaskPriority = 'high' | 'medium' | 'low' | 'none';
 
 export interface MeetingData {
   attendees?: string[];
@@ -47,6 +48,14 @@ export interface TaskProps {
   calendar_event_id?: string | null;
   recurrence?: RecurrenceRule | null;
   meeting_data?: MeetingData | null;
+  // Priority and goal fields
+  priority?: TaskPriority;
+  goal_id?: string | null;
+  // All-day task flag
+  is_all_day?: boolean;
+  // Measurable goal fields
+  target_value?: number | null;
+  value_unit?: string | null;
 }
 
 export class Task {
@@ -70,6 +79,11 @@ export class Task {
   calendar_event_id: string | null;
   recurrence: RecurrenceRule | null;
   meeting_data: MeetingData | null;
+  priority: TaskPriority;
+  goal_id: string | null;
+  is_all_day: boolean;
+  target_value: number | null;
+  value_unit: string | null;
 
   constructor(props: TaskProps) {
     this.title = props.title;
@@ -91,6 +105,11 @@ export class Task {
     this.calendar_event_id = props.calendar_event_id !== undefined ? props.calendar_event_id : null;
     this.recurrence = props.recurrence !== undefined ? props.recurrence : null;
     this.meeting_data = props.meeting_data !== undefined ? props.meeting_data : null;
+    this.priority = props.priority || 'none';
+    this.goal_id = props.goal_id !== undefined ? props.goal_id : null;
+    this.is_all_day = props.is_all_day || false;
+    this.target_value = props.target_value !== undefined ? props.target_value : null;
+    this.value_unit = props.value_unit !== undefined ? props.value_unit : null;
 
     // Auto-generate ID if not provided
     if (props.id) {
@@ -283,6 +302,11 @@ export class Task {
     if (this.calendar_event_id) result.calendar_event_id = this.calendar_event_id;
     if (this.recurrence) result.recurrence = this.recurrence;
     if (this.meeting_data) result.meeting_data = this.meeting_data;
+    if (this.priority !== 'none') result.priority = this.priority;
+    if (this.goal_id) result.goal_id = this.goal_id;
+    if (this.is_all_day) result.is_all_day = this.is_all_day;
+    if (this.target_value) result.target_value = this.target_value;
+    if (this.value_unit) result.value_unit = this.value_unit;
 
     return result;
   }
@@ -308,6 +332,11 @@ export class Task {
       calendar_event_id: data.calendar_event_id || null,
       recurrence: data.recurrence || null,
       meeting_data: data.meeting_data || null,
+      priority: data.priority || 'none',
+      goal_id: data.goal_id || null,
+      is_all_day: data.is_all_day || false,
+      target_value: data.target_value || null,
+      value_unit: data.value_unit || null,
     });
   }
 }

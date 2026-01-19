@@ -324,4 +324,66 @@ export class TaskService {
 
     return groupedTasks;
   }
+
+  async setTaskPriority(
+    board: Board,
+    taskId: TaskId,
+    priority: 'high' | 'medium' | 'low' | 'none'
+  ): Promise<void> {
+    for (const column of board.columns) {
+      const task = column.getTaskById(taskId);
+      if (task) {
+        task.priority = priority;
+        await this.storage.saveBoardToStorage(board);
+        return;
+      }
+    }
+    throw new ItemNotFoundError(`Task with id '${taskId}' not found`);
+  }
+
+  async getTasksByPriority(board: Board, columnId: ColumnId): Promise<Task[]> {
+    const column = board.getColumnById(columnId);
+    if (!column) {
+      throw new ColumnNotFoundError(`Column with id '${columnId}' not found`);
+    }
+
+    const tasks = column.getAllTasks();
+    const priorityOrder = { high: 0, medium: 1, low: 2, none: 3 };
+
+    return tasks.sort((a, b) => {
+      const aPriority = priorityOrder[a.priority] ?? 3;
+      const bPriority = priorityOrder[b.priority] ?? 3;
+      return aPriority - bPriority;
+    });
+  }
+
+  async setTaskMeasurableGoal(
+    board: Board,
+    taskId: TaskId,
+    targetValue: number,
+    valueUnit: string
+  ): Promise<void> {
+    for (const column of board.columns) {
+      const task = column.getTaskById(taskId);
+      if (task) {
+        task.target_value = targetValue;
+        task.value_unit = valueUnit;
+        await this.storage.saveBoardToStorage(board);
+        return;
+      }
+    }
+    throw new ItemNotFoundError(`Task with id '${taskId}' not found`);
+  }
+
+  async setTaskGoal(board: Board, taskId: TaskId, goalId: string | null): Promise<void> {
+    for (const column of board.columns) {
+      const task = column.getTaskById(taskId);
+      if (task) {
+        task.goal_id = goalId;
+        await this.storage.saveBoardToStorage(board);
+        return;
+      }
+    }
+    throw new ItemNotFoundError(`Task with id '${taskId}' not found`);
+  }
 }

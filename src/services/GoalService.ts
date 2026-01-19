@@ -176,4 +176,36 @@ export class GoalService {
 
     return occurrences;
   }
+
+  async getGoalProgressWithValues(goalId: GoalId): Promise<GoalProgress & { currentValue: number; targetValue: number | null; valueUnit: string | null }> {
+    const goal = await this.getGoalById(goalId);
+    const baseProgress = await this.getGoalProgress(goalId);
+
+    return {
+      ...baseProgress,
+      currentValue: goal.current_value,
+      targetValue: goal.target_value,
+      valueUnit: goal.value_unit,
+    };
+  }
+
+  async updateGoalProgress(goalId: GoalId, additionalValue: number): Promise<Goal> {
+    const goal = await this.getGoalById(goalId);
+    goal.updateProgress(additionalValue);
+    await this.repository.saveGoal(goal);
+    return goal;
+  }
+
+  async setGoalProgress(goalId: GoalId, value: number): Promise<Goal> {
+    const goal = await this.getGoalById(goalId);
+    goal.setProgress(value);
+    await this.repository.saveGoal(goal);
+    return goal;
+  }
+
+  async getTasksForGoal(goalId: GoalId): Promise<Task[]> {
+    const goal = await this.getGoalById(goalId);
+    const allTasks = await this.getTasksForProjects(goal.project_ids);
+    return allTasks.filter(task => task.goal_id === goalId);
+  }
 }
