@@ -133,7 +133,7 @@ describe('MarkdownBoardRepository', () => {
       // Create board 1
       mockFsManager.addDirectory('/test/boards/board1/');
       mockFsManager.addFile(
-        '/test/boards/board1/kanban.md',
+        '/test/boards/board1/board.md',
         `---
 id: board1
 name: Board 1
@@ -148,7 +148,7 @@ created_at: 2025-10-15T10:00:00.000Z
       // Create board 2
       mockFsManager.addDirectory('/test/boards/board2/');
       mockFsManager.addFile(
-        '/test/boards/board2/kanban.md',
+        '/test/boards/board2/board.md',
         `---
 id: board2
 name: Board 2
@@ -166,9 +166,9 @@ created_at: 2025-10-15T11:00:00.000Z
       expect(boards[1].name).toBe('Board 2');
     });
 
-    it('should skip directories without kanban.md', async () => {
+    it('should skip directories without board.md', async () => {
       mockFsManager.addDirectory('/test/boards/invalid/');
-      // No kanban.md file
+      // No board.md file
 
       const boards = await repository.loadAllBoards();
 
@@ -180,7 +180,7 @@ created_at: 2025-10-15T11:00:00.000Z
     it('should load board by ID', async () => {
       mockFsManager.addDirectory('/test/boards/test-board/');
       mockFsManager.addFile(
-        '/test/boards/test-board/kanban.md',
+        '/test/boards/test-board/board.md',
         `---
 id: test-board
 name: Test Board
@@ -208,7 +208,7 @@ created_at: 2025-10-15T10:00:00.000Z
     it('should load board by name', async () => {
       mockFsManager.addDirectory('/test/boards/test-board/');
       mockFsManager.addFile(
-        '/test/boards/test-board/kanban.md',
+        '/test/boards/test-board/board.md',
         `---
 id: test-board
 name: Test Board
@@ -232,13 +232,13 @@ created_at: 2025-10-15T10:00:00.000Z
   });
 
   describe('saveBoard', () => {
-    it('should save board with kanban.md', async () => {
+    it('should save board with board.md', async () => {
       const board = new Board('test-board', 'Test Board', [], []);
 
       const result = await repository.saveBoard(board);
 
       expect(result).toBe(true);
-      const savedContent = await mockFsManager.readFile('/test/boards/test-board/kanban.md');
+      const savedContent = await mockFsManager.readFile('/test/boards/test-board/board.md');
       expect(savedContent).toContain('id: test-board');
       expect(savedContent).toContain('name: Test Board');
     });
@@ -283,7 +283,7 @@ created_at: 2025-10-15T10:00:00.000Z
       const result = await repository.saveBoard(board);
 
       expect(result).toBe(true);
-      const savedContent = await mockFsManager.readFile('/test/boards/test/kanban.md');
+      const savedContent = await mockFsManager.readFile('/test/boards/test/board.md');
       expect(savedContent).toContain('Feature X');
       expect(savedContent).toContain('blue');
     });
@@ -292,12 +292,12 @@ created_at: 2025-10-15T10:00:00.000Z
   describe('deleteBoard', () => {
     it('should delete board directory', async () => {
       mockFsManager.addDirectory('/test/boards/test-board/');
-      mockFsManager.addFile('/test/boards/test-board/kanban.md', '# Test');
+      mockFsManager.addFile('/test/boards/test-board/board.md', '# Test');
 
       const result = await repository.deleteBoard('test-board');
 
       expect(result).toBe(true);
-      expect(await mockFsManager.fileExists('/test/boards/test-board/kanban.md')).toBe(false);
+      expect(await mockFsManager.fileExists('/test/boards/test-board/board.md')).toBe(false);
     });
 
     it('should return false for non-existent board', async () => {
@@ -311,7 +311,7 @@ created_at: 2025-10-15T10:00:00.000Z
       // Create boards
       mockFsManager.addDirectory('/test/boards/board1/');
       mockFsManager.addFile(
-        '/test/boards/board1/kanban.md',
+        '/test/boards/board1/board.md',
         `---
 id: board1
 name: Board One
@@ -324,7 +324,7 @@ created_at: 2025-10-15T10:00:00.000Z
 
       mockFsManager.addDirectory('/test/boards/board2/');
       mockFsManager.addFile(
-        '/test/boards/board2/kanban.md',
+        '/test/boards/board2/board.md',
         `---
 id: board2
 name: Board Two
@@ -355,7 +355,7 @@ created_at: 2025-10-15T11:00:00.000Z
       mockFsManager.addDirectory('/test/boards/complex/to-do/');
 
       mockFsManager.addFile(
-        '/test/boards/complex/kanban.md',
+        '/test/boards/complex/board.md',
         `---
 id: complex
 name: Complex Board

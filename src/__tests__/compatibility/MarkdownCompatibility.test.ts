@@ -12,7 +12,7 @@ class TestFileSystemManager {
     // In a real test environment, this would read actual files
     // For now, we'll return sample content based on the file path
 
-    if (filePath.includes('sample-board-kanban.md')) {
+    if (filePath.includes('sample-board.md')) {
       return `---
 id: sample-project
 name: Sample Project
@@ -85,7 +85,7 @@ describe('Python-TypeScript Markdown Compatibility', () => {
   describe('Board Metadata Format', () => {
     it('should parse board metadata with Python format', async () => {
       const metadata = await markdownParser.parseBoardMetadata(
-        '/test/sample-board-kanban.md'
+        '/test/sample-board.md'
       );
 
       expect(metadata).toBeDefined();
@@ -97,7 +97,7 @@ describe('Python-TypeScript Markdown Compatibility', () => {
 
     it('should parse parents array correctly', async () => {
       const metadata = await markdownParser.parseBoardMetadata(
-        '/test/sample-board-kanban.md'
+        '/test/sample-board.md'
       );
 
       expect(metadata.parents).toHaveLength(2);
@@ -110,7 +110,7 @@ describe('Python-TypeScript Markdown Compatibility', () => {
     });
 
     it('should preserve markdown content', async () => {
-      const content = await fsManager.readFile('/test/sample-board-kanban.md');
+      const content = await fsManager.readFile('/test/sample-board.md');
 
       expect(content).toContain('# Sample Project');
       expect(content).toContain('This is a sample project board');
@@ -153,7 +153,7 @@ describe('Python-TypeScript Markdown Compatibility', () => {
   describe('Timestamp Format Compatibility', () => {
     it('should use ISO 8601 format with milliseconds and UTC', async () => {
       const boardMetadata = await markdownParser.parseBoardMetadata(
-        '/test/sample-board-kanban.md'
+        '/test/sample-board.md'
       );
 
       // Verify timestamp format: YYYY-MM-DDTHH:mm:ss.sssZ
@@ -232,7 +232,7 @@ describe('Python-TypeScript Markdown Compatibility', () => {
 
     it('should handle YAML special characters in metadata', async () => {
       const boardMetadata = await markdownParser.parseBoardMetadata(
-        '/test/sample-board-kanban.md'
+        '/test/sample-board.md'
       );
 
       // Colon in description should be handled correctly
@@ -243,7 +243,7 @@ describe('Python-TypeScript Markdown Compatibility', () => {
   describe('Optional Fields', () => {
     it('should handle optional description field in board', async () => {
       const metadata = await markdownParser.parseBoardMetadata(
-        '/test/sample-board-kanban.md'
+        '/test/sample-board.md'
       );
 
       // Description is optional
