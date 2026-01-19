@@ -35,6 +35,7 @@ import { MissedActionsManager } from "../services/MissedActionsManager";
 import { GoogleCalendarRepository } from "../infrastructure/calendar/GoogleCalendarRepository";
 import { CalendarSyncService } from "../services/CalendarSyncService";
 import { GoalService } from "../services/GoalService";
+import { UnfinishedTasksService } from "../services/UnfinishedTasksService";
 import { registerBackgroundFileWatcherTask } from "../infrastructure/daemon/BackgroundFileWatcherTask";
 import { DaemonRunner } from "../infrastructure/daemon/DaemonRunner";
 import { FileChangeDetector } from "../infrastructure/daemon/FileChangeDetector";
@@ -162,6 +163,12 @@ export class DependencyContainer {
         this.get(BoardService),
         this.get(MarkdownAgendaRepository),
       ),
+    );
+
+    // Unfinished Tasks Service
+    this.factories.set(
+      UnfinishedTasksService,
+      () => new UnfinishedTasksService(this.get(MarkdownAgendaRepository)),
     );
 
     // Note Repository
@@ -424,6 +431,12 @@ async function initializeContainerInternal(): Promise<void> {
     console.error('[DependencyContainer] DaemonRunner failed to start:', error);
   }
 
+  _progressCallback?.('Starting unfinished tasks service...');
+  console.log('[DependencyContainer] Starting UnfinishedTasksService...');
+  const unfinishedTasksService = container.get<UnfinishedTasksService>(UnfinishedTasksService);
+  unfinishedTasksService.start();
+  console.log('[DependencyContainer] UnfinishedTasksService started');
+
   _progressCallback?.('Registering background tasks...');
   console.log('[DependencyContainer] Registering background task...');
   const fileWatcherTask = daemonRunner.getTask<FileWatcherTask>('FileWatcher');
@@ -682,4 +695,11 @@ export function getCalendarRepository(): GoogleCalendarRepository {
  */
 export function getCalendarSyncService(): CalendarSyncService {
   return getContainer().get(CalendarSyncService);
+}
+
+/**
+ * Get the unfinished tasks service
+ */
+export function getUnfinishedTasksService(): UnfinishedTasksService {
+  return getContainer().get(UnfinishedTasksService);
 }

@@ -263,6 +263,28 @@ export class MarkdownAgendaRepository implements AgendaRepository {
     }
   }
 
+  async loadUnfinishedItems(beforeDate?: string): Promise<AgendaItem[]> {
+    try {
+      const allItems = await this.loadAllAgendaItems();
+      const cutoffDate = beforeDate ? new Date(beforeDate) : new Date();
+
+      return allItems.filter(item => {
+        if (!item.is_unfinished) return false;
+        if (!beforeDate) return true;
+
+        const itemDate = new Date(item.scheduled_date);
+        return itemDate < cutoffDate;
+      }).sort((a, b) => {
+        const timeA = a.scheduledDateTime?.getTime() || 0;
+        const timeB = b.scheduledDateTime?.getTime() || 0;
+        return timeB - timeA;
+      });
+    } catch (error) {
+      logger.error('Failed to load unfinished agenda items:', error);
+      return [];
+    }
+  }
+
   private async getCachedTaskIndex(): Promise<Map<string, Set<string>>> {
     if (this.taskIndexCache && (Date.now() - this.taskIndexTimestamp) < this.TASK_INDEX_TTL) {
       logger.debug('[AgendaRepository] Using cached task index');

@@ -158,6 +158,11 @@ export class AgendaService {
     return result;
   }
 
+  async getAllScheduledItems(): Promise<ScheduledAgendaItem[]> {
+    const items = await this.agendaRepository.loadAllAgendaItems();
+    return await this.resolveAgendaItems(items);
+  }
+
   async getAgendaForToday(): Promise<DayAgenda> {
     const today = new Date().toISOString().split('T')[0];
     return this.getAgendaForDate(today);
@@ -669,6 +674,102 @@ export class AgendaService {
     }
 
     return { task: null, projectId: null };
+  }
+
+  async getAgendaForDateFiltered(
+    date: string,
+    projectId?: ProjectId,
+    goalId?: string
+  ): Promise<DayAgenda> {
+    const dayAgenda = await this.getAgendaForDate(date);
+
+    if (!projectId && !goalId) {
+      return dayAgenda;
+    }
+
+    const filterItems = (items: ScheduledAgendaItem[]) => {
+      return items.filter(item => {
+        if (projectId && item.agendaItem.project_id !== projectId) {
+          return false;
+        }
+        if (goalId && item.task?.goal_id !== goalId) {
+          return false;
+        }
+        return true;
+      });
+    };
+
+    const filtered = filterItems(dayAgenda.items);
+
+    return {
+      date,
+      items: filtered,
+      regularTasks: filtered.filter(si => si.agendaItem.task_type === 'regular'),
+      meetings: filtered.filter(si => si.agendaItem.task_type === 'meeting'),
+      milestones: filtered.filter(si => si.agendaItem.task_type === 'milestone'),
+      orphanedItems: filtered.filter(si => si.isOrphaned),
+      tasks: filtered.filter(si => si.agendaItem.task_type === 'regular'),
+    };
+  }
+
+  async getUnfinishedItems(date?: string): Promise<ScheduledAgendaItem[]> {
+    const unfinished = await this.agendaRepository.loadUnfinishedItems(date);
+    return await this.resolveAgendaItems(unfinished);
+  }
+
+  async markAsUnfinished(agendaItemId: string): Promise<void> {
+    const item = await this.agendaRepository.loadAgendaItemById(agendaItemId);
+    if (!item) {
+      throw new Error('Agenda item not found');
+    }
+
+    item.markAsUnfinished();
+    await this.agendaRepository.saveAgendaItem(item);
+  }
+
+  async updateActualValue(agendaItemId: string, value: number): Promise<void> {
+    const item = await this.agendaRepository.loadAgendaItemById(agendaItemId);
+    if (!item) {
+      throw new Error('Agenda item not found');
+    }
+
+    item.updateActualValue(value);
+    await this.agendaRepository.saveAgendaItem(item);
+  }
+
+  async getAllSchedulableTasks(projectId?: ProjectId, goalId?: string): Promise<ScheduledTask[]> {
+    const boards = await this.boardService.getAllBoards();
+    const tasks: ScheduledTask[] = [];
+
+    for (const board of boards) {
+      if (projectId && board.project_id !== projectId) {
+        continue;
+      }
+
+      const projectName = await this.getProjectName(board.project_id);
+
+      for (const column of board.columns) {
+        for (const task of column.tasks) {
+          if (goalId && task.goal_id !== goalId) {
+            continue;
+          }
+
+          tasks.push({
+            task,
+            boardId: board.id,
+            boardName: board.name,
+            projectName,
+          });
+        }
+      }
+    }
+
+    return tasks.sort((a, b) => {
+      const priorityOrder = { high: 0, medium: 1, low: 2, none: 3 };
+      const aPriority = priorityOrder[a.task.priority] ?? 3;
+      const bPriority = priorityOrder[b.task.priority] ?? 3;
+      return aPriority - bPriority;
+    });
   }
 
   private async ensureRecurringAgendaItemsForDate(date: string): Promise<void> {

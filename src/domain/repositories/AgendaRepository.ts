@@ -19,4 +19,6 @@ export interface AgendaRepository {
   deleteAgendaItem(item: AgendaItem): Promise<boolean>;
 
   getOrphanedAgendaItems(): Promise<AgendaItem[]>;
+
+  loadUnfinishedItems(beforeDate?: string): Promise<AgendaItem[]>;
 }

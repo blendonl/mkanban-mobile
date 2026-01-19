@@ -1,5 +1,5 @@
 import { AgendaItem } from '../domain/entities/AgendaItem';
-import { AgendaService, DayAgenda, ScheduledAgendaItem } from './AgendaService';
+import { AgendaService, DayAgenda, ScheduledAgendaItem, ScheduledTask } from './AgendaService';
 import { TaskId, BoardId, ProjectId } from '../core/types';
 import { TaskType, MeetingData, RecurrenceRule } from '../domain/entities/Task';
 import { getCacheManager } from '../infrastructure/cache/CacheManager';
@@ -146,6 +146,46 @@ export class CachedAgendaService {
     return this.baseService.getAgendaForDateRange(startDate, endDate);
   }
 
+  async getTasksForDate(date: string): Promise<DayAgenda> {
+    return this.getAgendaForDate(date);
+  }
+
+  async getAgendaForDateFiltered(
+    date: string,
+    projectId?: ProjectId,
+    goalId?: string
+  ): Promise<DayAgenda> {
+    const dayAgenda = await this.getAgendaForDate(date);
+
+    if (!projectId && !goalId) {
+      return dayAgenda;
+    }
+
+    const filtered = dayAgenda.items.filter(item => {
+      if (projectId && item.agendaItem.project_id !== projectId) {
+        return false;
+      }
+      if (goalId && item.task?.goal_id !== goalId) {
+        return false;
+      }
+      return true;
+    });
+
+    return {
+      date,
+      items: filtered,
+      regularTasks: filtered.filter(si => si.agendaItem.task_type === 'regular'),
+      meetings: filtered.filter(si => si.agendaItem.task_type === 'meeting'),
+      milestones: filtered.filter(si => si.agendaItem.task_type === 'milestone'),
+      orphanedItems: filtered.filter(si => si.isOrphaned),
+      tasks: filtered.filter(si => si.agendaItem.task_type === 'regular'),
+    };
+  }
+
+  async getUnfinishedItems(date?: string): Promise<ScheduledAgendaItem[]> {
+    return this.baseService.getUnfinishedItems(date);
+  }
+
   async getUpcomingAgendaItems(limit: number = 10): Promise<ScheduledAgendaItem[]> {
     return this.baseService.getUpcomingAgendaItems(limit);
   }
@@ -156,6 +196,30 @@ export class CachedAgendaService {
 
   async getAgendaItemById(itemId: string): Promise<AgendaItem | null> {
     return this.baseService.getAgendaItemById(itemId);
+  }
+
+  async markAsUnfinished(agendaItemId: string): Promise<void> {
+    const item = await this.baseService.getAgendaItemById(agendaItemId);
+    await this.baseService.markAsUnfinished(agendaItemId);
+    if (item) {
+      this.invalidateDate(item.scheduled_date);
+    } else {
+      this.invalidateCache();
+    }
+  }
+
+  async updateActualValue(agendaItemId: string, value: number): Promise<void> {
+    const item = await this.baseService.getAgendaItemById(agendaItemId);
+    await this.baseService.updateActualValue(agendaItemId, value);
+    if (item) {
+      this.invalidateDate(item.scheduled_date);
+    } else {
+      this.invalidateCache();
+    }
+  }
+
+  async getAllSchedulableTasks(projectId?: ProjectId, goalId?: string): Promise<ScheduledTask[]> {
+    return this.baseService.getAllSchedulableTasks(projectId, goalId);
   }
 
   async scheduleTask(
