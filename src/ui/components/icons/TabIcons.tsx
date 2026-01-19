@@ -157,6 +157,23 @@ export function TimeIcon({ focused, size = 24 }: TabIconProps) {
   );
 }
 
+export function GoalsIcon({ focused, size = 24 }: TabIconProps) {
+  const color = focused ? theme.accent.primary : theme.text.muted;
+  const fill = focused ? color + '20' : 'none';
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 2L15 7L21 8L17 12L18 19L12 16L6 19L7 12L3 8L9 7L12 2Z"
+        stroke={color}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={fill}
+      />
+    </Svg>
+  );
+}
+
 export function ChevronRightIcon({ focused, size = 24 }: TabIconProps) {
   const color = focused ? theme.accent.primary : theme.text.muted;
   return (

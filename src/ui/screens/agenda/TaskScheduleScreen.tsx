@@ -13,7 +13,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { getAgendaService, getBoardService } from '../../../core/DependencyContainer';
-import { Task, TaskType } from '../../../domain/entities/Task';
+import { Task, TaskType, RecurrenceRule } from '../../../domain/entities/Task';
 import { AgendaStackParamList } from '../../navigation/TabNavigator';
 import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 
@@ -27,6 +27,23 @@ const TASK_TYPES: { value: TaskType; label: string; icon: AppIconName }[] = [
 ];
 
 const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120];
+const RECURRENCE_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'custom', label: 'Custom' },
+] as const;
+
+const WEEKDAY_OPTIONS = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 7, label: 'Sun' },
+];
 
 export default function TaskScheduleScreen() {
   const route = useRoute<TaskScheduleRouteProp>();
@@ -43,6 +60,57 @@ export default function TaskScheduleScreen() {
   const [selectedType, setSelectedType] = useState<TaskType>('regular');
   const [meetingLocation, setMeetingLocation] = useState<string>('');
   const [meetingAttendees, setMeetingAttendees] = useState<string>('');
+  const [recurrenceType, setRecurrenceType] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'custom'>('none');
+  const [customFrequency, setCustomFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [repeatInterval, setRepeatInterval] = useState<string>('1');
+  const [repeatDays, setRepeatDays] = useState<number[]>([]);
+  const [extraTimes, setExtraTimes] = useState<string[]>([]);
+
+  const applyRecurrenceToState = (
+    rule: RecurrenceRule | null | undefined,
+    dateValue: string | null | undefined,
+    timeValue: string
+  ) => {
+    if (!rule) {
+      setRecurrenceType('none');
+      setCustomFrequency('daily');
+      setRepeatInterval('1');
+      setRepeatDays([]);
+      setExtraTimes([]);
+      return;
+    }
+
+    const baseFrequency = rule.frequency;
+    const isCustom =
+      (rule.interval && rule.interval > 1) ||
+      (rule.times && rule.times.length > 1) ||
+      (rule.daysOfWeek && rule.daysOfWeek.length > 1) ||
+      (baseFrequency === 'monthly' && rule.dayOfMonth && dateValue && rule.dayOfMonth !== getDayOfMonth(dateValue));
+
+    if (isCustom) {
+      setRecurrenceType('custom');
+      setCustomFrequency(baseFrequency);
+    } else {
+      setRecurrenceType(baseFrequency);
+    }
+
+    setRepeatInterval(String(rule.interval || 1));
+    if (baseFrequency === 'weekly') {
+      if (rule.daysOfWeek && rule.daysOfWeek.length > 0) {
+        setRepeatDays(rule.daysOfWeek);
+      } else if (dateValue) {
+        setRepeatDays([getIsoDayOfWeek(dateValue)]);
+      }
+    } else {
+      setRepeatDays([]);
+    }
+
+    if (rule.times && rule.times.length > 0) {
+      setExtraTimes(rule.times.filter(t => t !== timeValue));
+    } else {
+      setExtraTimes([]);
+    }
+  };
 
   const loadTask = useCallback(async () => {
     try {
@@ -55,6 +123,7 @@ export default function TaskScheduleScreen() {
         setSelectedType(taskInstance.task_type);
         setMeetingLocation(taskInstance.meeting_data?.location || '');
         setMeetingAttendees(taskInstance.meeting_data?.attendees?.join(', ') || '');
+        applyRecurrenceToState(taskInstance.recurrence, taskInstance.scheduled_date, taskInstance.scheduled_time || '');
         setLoading(false);
         return;
       }
@@ -72,6 +141,7 @@ export default function TaskScheduleScreen() {
           setSelectedType(foundTask.task_type);
           setMeetingLocation(foundTask.meeting_data?.location || '');
           setMeetingAttendees(foundTask.meeting_data?.attendees?.join(', ') || '');
+          applyRecurrenceToState(foundTask.recurrence, foundTask.scheduled_date, foundTask.scheduled_time || '');
           break;
         }
       }
@@ -99,13 +169,15 @@ export default function TaskScheduleScreen() {
     setSaving(true);
     try {
       const agendaService = getAgendaService();
+      const recurrenceRule = buildRecurrenceRule();
 
       await agendaService.scheduleTask(
         boardId,
         taskId,
         selectedDate,
         selectedTime || undefined,
-        selectedDuration || undefined
+        selectedDuration || undefined,
+        recurrenceRule
       );
 
       if (selectedType !== task.task_type) {
@@ -131,6 +203,48 @@ export default function TaskScheduleScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const buildRecurrenceRule = (): RecurrenceRule | null => {
+    if (recurrenceType === 'none') {
+      return null;
+    }
+
+    const frequency = recurrenceType === 'custom' ? customFrequency : recurrenceType;
+    const interval = recurrenceType === 'custom'
+      ? Math.max(1, parseInt(repeatInterval || '1', 10))
+      : 1;
+
+    const rule: RecurrenceRule = { frequency, interval };
+
+    if (frequency === 'weekly') {
+      rule.daysOfWeek = repeatDays.length > 0 ? repeatDays : [getIsoDayOfWeek(selectedDate)];
+    }
+
+    if (frequency === 'monthly') {
+      rule.dayOfMonth = getDayOfMonth(selectedDate);
+    }
+
+    if (frequency === 'daily') {
+      const times = [selectedTime, ...extraTimes].filter(Boolean);
+      if (times.length > 0) {
+        rule.times = Array.from(new Set(times)) as string[];
+      }
+    }
+
+    return rule;
+  };
+
+  const toggleRepeatDay = (day: number) => {
+    setRepeatDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
+  };
+
+  const toggleExtraTime = (time: string) => {
+    setExtraTimes((prev) =>
+      prev.includes(time) ? prev.filter((t) => t !== time) : [...prev, time]
+    );
   };
 
   const handleUnschedule = async () => {
@@ -215,6 +329,7 @@ export default function TaskScheduleScreen() {
 
   const dateOptions = generateDateOptions();
   const timeOptions = generateTimeOptions();
+  const effectiveFrequency = recurrenceType === 'custom' ? customFrequency : recurrenceType;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -313,6 +428,118 @@ export default function TaskScheduleScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Repeat</Text>
+        <Text style={styles.sectionSubtitle}>Set a recurrence pattern for this task.</Text>
+        <View style={styles.recurrenceRow}>
+          {RECURRENCE_OPTIONS.map(option => (
+            <TouchableOpacity
+              key={option.value}
+              style={[
+                styles.recurrenceButton,
+                recurrenceType === option.value && styles.recurrenceButtonSelected,
+              ]}
+              onPress={() => setRecurrenceType(option.value)}
+            >
+              <Text style={[
+                styles.recurrenceLabel,
+                recurrenceType === option.value && styles.recurrenceLabelSelected,
+              ]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {recurrenceType === 'custom' && (
+          <View style={styles.customRecurrence}>
+            <Text style={styles.subLabel}>Frequency</Text>
+            <View style={styles.recurrenceRow}>
+              {(['daily', 'weekly', 'monthly'] as const).map(freq => (
+                <TouchableOpacity
+                  key={freq}
+                  style={[
+                    styles.recurrenceButton,
+                    customFrequency === freq && styles.recurrenceButtonSelected,
+                  ]}
+                  onPress={() => setCustomFrequency(freq)}
+                >
+                  <Text style={[
+                    styles.recurrenceLabel,
+                    customFrequency === freq && styles.recurrenceLabelSelected,
+                  ]}>
+                    {freq.charAt(0).toUpperCase() + freq.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.subLabel}>Interval</Text>
+            <TextInput
+              style={styles.intervalInput}
+              value={repeatInterval}
+              onChangeText={setRepeatInterval}
+              keyboardType="number-pad"
+              placeholder="1"
+              placeholderTextColor={theme.text.muted}
+            />
+          </View>
+        )}
+
+        {effectiveFrequency === 'weekly' && (
+          <View style={styles.weekdayRow}>
+            {WEEKDAY_OPTIONS.map(day => {
+              const selected = repeatDays.includes(day.value);
+              return (
+                <TouchableOpacity
+                  key={day.value}
+                  style={[
+                    styles.weekdayButton,
+                    selected && styles.weekdayButtonSelected,
+                  ]}
+                  onPress={() => toggleRepeatDay(day.value)}
+                >
+                  <Text style={[
+                    styles.weekdayLabel,
+                    selected && styles.weekdayLabelSelected,
+                  ]}>
+                    {day.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {effectiveFrequency === 'daily' && (
+          <>
+            <Text style={styles.subLabel}>Additional times</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timeScroll}>
+              {timeOptions.map(option => {
+                const isSelected = extraTimes.includes(option.value);
+                return (
+                  <TouchableOpacity
+                    key={`extra-${option.value}`}
+                    style={[
+                      styles.timeButton,
+                      isSelected && styles.timeButtonSelected,
+                    ]}
+                    onPress={() => toggleExtraTime(option.value)}
+                  >
+                    <Text style={[
+                      styles.timeLabel,
+                      isSelected && styles.timeLabelSelected,
+                    ]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -427,6 +654,17 @@ function formatTimeLabel(hour: number, min: number): string {
   const h = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
   const m = min.toString().padStart(2, '0');
   return `${h}:${m} ${period}`;
+}
+
+function getIsoDayOfWeek(dateString: string): number {
+  const date = new Date(`${dateString}T00:00:00`);
+  const day = date.getDay();
+  return day === 0 ? 7 : day;
+}
+
+function getDayOfMonth(dateString: string): number {
+  const date = new Date(`${dateString}T00:00:00`);
+  return date.getDate();
 }
 
 const styles = StyleSheet.create({
@@ -560,6 +798,80 @@ const styles = StyleSheet.create({
   },
   timeLabelSelected: {
     color: theme.accent.primary,
+  },
+  recurrenceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+  },
+  recurrenceButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    backgroundColor: theme.background.elevated,
+  },
+  recurrenceButtonSelected: {
+    backgroundColor: theme.accent.primary,
+    borderColor: theme.accent.primary,
+  },
+  recurrenceLabel: {
+    fontSize: 12,
+    color: theme.text.secondary,
+    fontWeight: '600',
+  },
+  recurrenceLabelSelected: {
+    color: theme.background.primary,
+  },
+  customRecurrence: {
+    marginTop: spacing.md,
+  },
+  subLabel: {
+    fontSize: 12,
+    color: theme.text.tertiary,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  intervalInput: {
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.lg,
+    backgroundColor: theme.input.background,
+    borderWidth: 1,
+    borderColor: theme.input.border,
+    borderRadius: 10,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    color: theme.text.primary,
+  },
+  weekdayRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+  },
+  weekdayButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    backgroundColor: theme.background.elevated,
+  },
+  weekdayButtonSelected: {
+    backgroundColor: theme.accent.primary,
+    borderColor: theme.accent.primary,
+  },
+  weekdayLabel: {
+    fontSize: 12,
+    color: theme.text.secondary,
+    fontWeight: '600',
+  },
+  weekdayLabelSelected: {
+    color: theme.background.primary,
   },
   durationRow: {
     flexDirection: 'row',

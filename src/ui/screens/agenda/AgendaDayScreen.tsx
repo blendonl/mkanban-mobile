@@ -68,6 +68,22 @@ export default function AgendaDayScreen() {
     setRefreshing(false);
   }, [loadDayData]);
 
+  const handleToggleComplete = async (item: ScheduledAgendaItem) => {
+    try {
+      const agendaService = getAgendaService();
+      const agendaItem = item.agendaItem;
+      if (agendaItem.completed_at) {
+        agendaItem.markIncomplete();
+      } else {
+        agendaItem.markComplete();
+      }
+      await agendaService.updateAgendaItem(agendaItem);
+      await loadDayData();
+    } catch (error) {
+      console.error('Failed to update agenda item status:', error);
+    }
+  };
+
   const getTasksForHour = (hour: number): ScheduledAgendaItem[] => {
     if (!dayAgenda) return [];
 
@@ -113,6 +129,7 @@ export default function AgendaDayScreen() {
     const icon = TASK_TYPE_ICONS[agendaItem.task_type];
     const duration = agendaItem.duration_minutes;
     const taskTitle = task?.title || agendaItem.task_id;
+    const isCompleted = !!agendaItem.completed_at;
 
     return (
       <TouchableOpacity
@@ -126,7 +143,14 @@ export default function AgendaDayScreen() {
           </View>
         </View>
         <View style={styles.taskCardContent}>
-          <Text style={[styles.taskTitle, isOrphaned && styles.taskTitleOrphaned]} numberOfLines={1}>
+          <Text
+            style={[
+              styles.taskTitle,
+              isOrphaned && styles.taskTitleOrphaned,
+              isCompleted && styles.taskTitleCompleted,
+            ]}
+            numberOfLines={1}
+          >
             {taskTitle}
           </Text>
           <View style={styles.taskMeta}>
@@ -151,6 +175,20 @@ export default function AgendaDayScreen() {
             </Text>
           </View>
         )}
+        <TouchableOpacity
+          style={[styles.completeToggle, isCompleted && styles.completeToggleDone]}
+          onPress={(event) => {
+            event.stopPropagation?.();
+            handleToggleComplete(item);
+          }}
+          activeOpacity={0.7}
+        >
+          <AppIcon
+            name="check"
+            size={14}
+            color={isCompleted ? theme.background.primary : theme.accent.success}
+          />
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -375,6 +413,10 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     color: theme.text.secondary,
   },
+  taskTitleCompleted: {
+    textDecorationLine: 'line-through',
+    color: theme.text.tertiary,
+  },
   taskMeta: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -405,6 +447,21 @@ const styles = StyleSheet.create({
     color: theme.text.secondary,
     fontSize: 12,
     flexShrink: 1,
+  },
+  completeToggle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.accent.success,
+    backgroundColor: theme.card.background,
+    marginLeft: spacing.sm,
+  },
+  completeToggleDone: {
+    backgroundColor: theme.accent.success,
+    borderColor: theme.accent.success,
   },
   emptyState: {
     alignItems: 'center',

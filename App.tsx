@@ -5,7 +5,7 @@ import ErrorBoundary from './src/ui/components/ErrorBoundary';
 import { ProjectProvider } from './src/core/ProjectContext';
 import PermissionScreen from './src/ui/screens/PermissionScreen';
 import { checkStoragePermission } from './src/utils/storagePermissions';
-import { initializeContainer, setInitializationProgressCallback } from './src/core/DependencyContainer';
+import { initializeContainer, setInitializationProgressCallback, getContainer } from './src/core/DependencyContainer';
 import { Platform, View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import theme from './src/ui/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -47,6 +47,7 @@ export default function App() {
     setAppState('initializing');
     setInitStep('Setting up storage...');
     try {
+      getContainer().clearInstances();
       await initializeContainer();
       setAppState('ready');
     } catch (error) {

@@ -20,11 +20,14 @@ import { BoardId, ProjectId } from "../../core/types";
 import { BOARD_FILENAME, COLUMN_METADATA_FILENAME } from "../../core/constants";
 import { generateIdFromName } from "../../utils/stringUtils";
 import { now } from "../../utils/dateUtils";
+import { logger } from "../../utils/logger";
 
 export class MarkdownBoardRepository implements BoardRepository {
   private fileSystem: FileSystemManager;
   private parser: MarkdownParser;
   private persistence: BoardPersistence;
+  private boardIndex: Map<BoardId, string> = new Map();
+  private indexInitialized = false;
 
   constructor(fileSystem: FileSystemManager) {
     this.fileSystem = fileSystem;
@@ -37,7 +40,7 @@ export class MarkdownBoardRepository implements BoardRepository {
    */
   async loadBoardsFromDirectory(directory: string): Promise<Board[]> {
     try {
-      console.log("Loading boards from", directory);
+      logger.debug("Loading boards from", directory);
       const boards: Board[] = [];
 
       await this.fileSystem.ensureDirectoryExists(directory);
@@ -57,10 +60,10 @@ export class MarkdownBoardRepository implements BoardRepository {
         }
       }
 
-      console.log(`Loaded ${boards.length} boards from ${directory}`);
+      logger.debug(`Loaded ${boards.length} boards from ${directory}`);
       return boards;
     } catch (error) {
-      console.error(`Failed to load boards from ${directory}:`, error);
+      logger.error(`Failed to load boards from ${directory}:`, error);
       return [];
     }
   }
@@ -71,8 +74,25 @@ export class MarkdownBoardRepository implements BoardRepository {
    */
   async loadBoardById(boardId: BoardId): Promise<Board | null> {
     try {
-      console.log("Loading board by ID:", boardId);
+      logger.debug("Loading board by ID:", boardId);
 
+      if (!this.indexInitialized) {
+        await this.buildBoardIndex();
+      }
+
+      const filePath = this.boardIndex.get(boardId);
+      if (filePath) {
+        const projectSlug = this.extractProjectSlugFromPath(filePath);
+        if (projectSlug) {
+          const board = await this.loadBoardFromFile(filePath, projectSlug);
+          if (board) {
+            logger.debug("Found board by ID (from index):", board.name);
+            return board;
+          }
+        }
+      }
+
+      logger.debug("Board not in index, falling back to full scan");
       const projectDirs = await this.fileSystem.listProjects();
 
       for (const projectSlug of projectDirs) {
@@ -88,17 +108,18 @@ export class MarkdownBoardRepository implements BoardRepository {
           if (exists) {
             const board = await this.loadBoardFromFile(kanbanFile, projectSlug);
             if (board && board.id === boardId) {
-              console.log("Found board by ID:", board.name);
+              logger.debug("Found board by ID (from scan):", board.name);
+              this.updateIndex(board.id, kanbanFile);
               return board;
             }
           }
         }
       }
 
-      console.warn("Board not found by ID:", boardId);
+      logger.warn("Board not found by ID:", boardId);
       return null;
     } catch (error) {
-      console.error("Failed to load board by ID:", error);
+      logger.error("Failed to load board by ID:", error);
       return null;
     }
   }
@@ -121,7 +142,7 @@ export class MarkdownBoardRepository implements BoardRepository {
         projectSlug || this.extractProjectSlugFromPath(kanbanFile);
 
       if (!extractedProjectSlug) {
-        console.error(`Cannot determine project_id for board at ${kanbanFile}`);
+        logger.error(`Cannot determine project_id for board at ${kanbanFile}`);
         return null;
       }
 
@@ -136,13 +157,13 @@ export class MarkdownBoardRepository implements BoardRepository {
 
       board = await this.loadColumnsForBoard(board, boardDir);
 
-      console.log(board);
+      logger.debug(board);
 
       this.loadParentsForBoard(board, metadata);
 
       return board;
     } catch (error) {
-      console.error(`Failed to load board from file ${kanbanFile}:`, error);
+      logger.error(`Failed to load board from file ${kanbanFile}:`, error);
       return null;
     }
   }
@@ -152,7 +173,7 @@ export class MarkdownBoardRepository implements BoardRepository {
    */
   async saveBoard(board: Board, projectSlug: string): Promise<void> {
     try {
-      console.log("Saving board:", board.name, "for project:", projectSlug);
+      logger.debug("Saving board:", board.name, "for project:", projectSlug);
 
       const projectBoardsDir =
         this.fileSystem.getProjectBoardsDirectory(projectSlug);
@@ -178,7 +199,8 @@ export class MarkdownBoardRepository implements BoardRepository {
       await this.parser.saveBoardMetadata(kanbanFile, board.name, boardData);
       await this.saveColumnsForBoard(board, boardDir);
 
-      console.log("Successfully saved board:", board.name);
+      this.updateIndex(board.id, kanbanFile);
+      logger.debug("Successfully saved board:", board.name);
     } catch (error) {
       throw new Error(`Failed to save board "${board.name}": ${error}`);
     }
@@ -189,11 +211,11 @@ export class MarkdownBoardRepository implements BoardRepository {
    */
   async deleteBoard(boardId: BoardId): Promise<boolean> {
     try {
-      console.log("Deleting board:", boardId);
+      logger.debug("Deleting board:", boardId);
 
       const board = await this.loadBoardById(boardId);
       if (!board) {
-        console.warn("Cannot delete non-existent board:", boardId);
+        logger.warn("Cannot delete non-existent board:", boardId);
         return false;
       }
 
@@ -205,12 +227,13 @@ export class MarkdownBoardRepository implements BoardRepository {
       const deleted = await this.fileSystem.deleteDirectory(boardDir);
 
       if (deleted) {
-        console.log("Successfully deleted board:", board.name);
+        this.removeFromIndex(boardId);
+        logger.debug("Successfully deleted board:", board.name);
       }
 
       return deleted;
     } catch (error) {
-      console.error("Failed to delete board:", error);
+      logger.error("Failed to delete board:", error);
       return false;
     }
   }
@@ -219,7 +242,7 @@ export class MarkdownBoardRepository implements BoardRepository {
    * Create a sample board with default columns for a project
    */
   async createSampleBoard(name: string, projectId: ProjectId): Promise<Board> {
-    console.log("Creating sample board:", name, "for project:", projectId);
+    logger.debug("Creating sample board:", name, "for project:", projectId);
 
     const board = new Board({
       name,
@@ -233,7 +256,7 @@ export class MarkdownBoardRepository implements BoardRepository {
 
     board.addParent("Sample Project", "blue");
 
-    console.log("Created sample board:", name);
+    logger.debug("Created sample board:", name);
     return board;
   }
 
@@ -355,7 +378,7 @@ export class MarkdownBoardRepository implements BoardRepository {
 
       return board;
     } catch (error) {
-      console.error("Failed to load columns for board:", error);
+      logger.error("Failed to load columns for board:", error);
       return board;
     }
   }
@@ -432,12 +455,12 @@ export class MarkdownBoardRepository implements BoardRepository {
 
           column.tasks.push(task);
         } catch (error) {
-          console.warn(`Skipping corrupted task file ${taskFile}:`, error);
+          logger.warn(`Skipping corrupted task file ${taskFile}:`, error);
           continue;
         }
       }
     } catch (error) {
-      console.error("Failed to load tasks for column:", error);
+      logger.error("Failed to load tasks for column:", error);
     }
   }
 
@@ -523,7 +546,7 @@ export class MarkdownBoardRepository implements BoardRepository {
         }
       }
     } catch (error) {
-      console.error("Failed to save columns for board:", error);
+      logger.error("Failed to save columns for board:", error);
       throw error;
     }
   }
@@ -584,5 +607,43 @@ export class MarkdownBoardRepository implements BoardRepository {
     }
 
     return null;
+  }
+
+  private async buildBoardIndex(): Promise<void> {
+    try {
+      logger.debug('[BoardRepository] Building board index...');
+      const projectDirs = await this.fileSystem.listProjects();
+
+      for (const projectSlug of projectDirs) {
+        const projectBoardsDir = this.fileSystem.getProjectBoardsDirectory(projectSlug);
+        const boardDirs = await this.fileSystem.listDirectories(projectBoardsDir);
+
+        for (const boardDir of boardDirs) {
+          const kanbanFile = `${boardDir}${BOARD_FILENAME}`;
+          const exists = await this.fileSystem.fileExists(kanbanFile);
+
+          if (exists) {
+            const board = await this.loadBoardFromFile(kanbanFile, projectSlug);
+            if (board) {
+              this.boardIndex.set(board.id, kanbanFile);
+            }
+          }
+        }
+      }
+
+      this.indexInitialized = true;
+      logger.debug(`[BoardRepository] Board index built with ${this.boardIndex.size} entries`);
+    } catch (error) {
+      logger.error('[BoardRepository] Failed to build board index:', error);
+      this.indexInitialized = false;
+    }
+  }
+
+  private updateIndex(boardId: BoardId, filePath: string): void {
+    this.boardIndex.set(boardId, filePath);
+  }
+
+  private removeFromIndex(boardId: BoardId): void {
+    this.boardIndex.delete(boardId);
   }
 }

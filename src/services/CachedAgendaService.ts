@@ -1,13 +1,16 @@
 import { AgendaItem } from '../domain/entities/AgendaItem';
 import { AgendaService, DayAgenda, ScheduledAgendaItem } from './AgendaService';
 import { TaskId, BoardId, ProjectId } from '../core/types';
-import { TaskType, MeetingData } from '../domain/entities/Task';
+import { TaskType, MeetingData, RecurrenceRule } from '../domain/entities/Task';
 import { getCacheManager } from '../infrastructure/cache/CacheManager';
 import { EntityCache } from '../infrastructure/cache/EntityCache';
 import { getEventBus, EventSubscription, FileChangeEventPayload } from '../core/EventBus';
 
 export class CachedAgendaService {
   private cache: EntityCache<DayAgenda>;
+  private weekCache: Map<string, Map<string, DayAgenda>> = new Map();
+  private weekCacheTTL: Map<string, number> = new Map();
+  private readonly WEEK_CACHE_TTL_MS = 5 * 60 * 1000;
   private eventSubscriptions: EventSubscription[] = [];
 
   constructor(private baseService: AgendaService) {
@@ -29,7 +32,53 @@ export class CachedAgendaService {
 
   private invalidateCache(): void {
     this.cache.clear();
+    this.weekCache.clear();
+    this.weekCacheTTL.clear();
     getEventBus().publishSync('agenda_invalidated', { timestamp: new Date() });
+  }
+
+  private invalidateDate(date: string): void {
+    this.cache.invalidate(date);
+    this.invalidateWeekCachesContainingDate(date);
+    getEventBus().publishSync('agenda_invalidated', { timestamp: new Date() });
+  }
+
+  private invalidateDateRange(startDate: string, endDate: string): void {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const current = new Date(start);
+
+    while (current <= end) {
+      const dateKey = current.toISOString().split('T')[0];
+      this.cache.invalidate(dateKey);
+      current.setDate(current.getDate() + 1);
+    }
+
+    this.invalidateWeekCachesContainingDate(startDate);
+    this.invalidateWeekCachesContainingDate(endDate);
+    getEventBus().publishSync('agenda_invalidated', { timestamp: new Date() });
+  }
+
+  private invalidateWeekCachesContainingDate(date: string): void {
+    const targetDate = new Date(date);
+    const keysToDelete: string[] = [];
+
+    for (const [weekKey, weekData] of this.weekCache.entries()) {
+      if (weekData.has(date)) {
+        keysToDelete.push(weekKey);
+      }
+    }
+
+    keysToDelete.forEach(key => {
+      this.weekCache.delete(key);
+      this.weekCacheTTL.delete(key);
+    });
+  }
+
+  private isWeekCacheValid(weekKey: string): boolean {
+    const timestamp = this.weekCacheTTL.get(weekKey);
+    if (!timestamp) return false;
+    return Date.now() - timestamp < this.WEEK_CACHE_TTL_MS;
   }
 
   async createAgendaItem(
@@ -52,7 +101,7 @@ export class CachedAgendaService {
       taskType,
       meetingData
     );
-    this.invalidateCache();
+    this.invalidateDate(date);
     return item;
   }
 
@@ -68,10 +117,32 @@ export class CachedAgendaService {
   }
 
   async getAgendaForWeek(weekStart: string): Promise<Map<string, DayAgenda>> {
-    return this.baseService.getAgendaForWeek(weekStart);
+    const weekKey = `week:${weekStart}`;
+
+    if (this.isWeekCacheValid(weekKey)) {
+      const cached = this.weekCache.get(weekKey);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    const weekData = await this.baseService.getAgendaForWeek(weekStart);
+    this.weekCache.set(weekKey, weekData);
+    this.weekCacheTTL.set(weekKey, Date.now());
+
+    return weekData;
   }
 
   async getAgendaForDateRange(startDate: string, endDate: string): Promise<Map<string, DayAgenda>> {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 6) {
+      return this.getAgendaForWeek(startDate);
+    }
+
     return this.baseService.getAgendaForDateRange(startDate, endDate);
   }
 
@@ -83,44 +154,43 @@ export class CachedAgendaService {
     return this.baseService.getOverdueAgendaItems();
   }
 
-  async getAgendaItemById(itemId: string): Promise<ScheduledAgendaItem | null> {
+  async getAgendaItemById(itemId: string): Promise<AgendaItem | null> {
     return this.baseService.getAgendaItemById(itemId);
   }
 
   async scheduleTask(
-    projectId: ProjectId,
     boardId: BoardId,
     taskId: TaskId,
     date: string,
     time?: string,
     durationMinutes?: number,
-    taskType?: TaskType,
-    meetingData?: MeetingData
-  ): Promise<void> {
-    await this.baseService.scheduleTask(projectId, boardId, taskId, date, time, durationMinutes, taskType, meetingData);
-    this.invalidateCache();
+    recurrence?: RecurrenceRule | null
+  ): Promise<AgendaItem> {
+    const item = await this.baseService.scheduleTask(boardId, taskId, date, time, durationMinutes, recurrence);
+    this.invalidateDate(date);
+    return item;
   }
 
   async rescheduleAgendaItem(
-    itemId: string,
+    item: AgendaItem,
     newDate: string,
-    newTime?: string,
-    newDuration?: number
-  ): Promise<AgendaItem | null> {
-    const item = await this.baseService.rescheduleAgendaItem(itemId, newDate, newTime, newDuration);
-    this.invalidateCache();
-    return item;
+    newTime?: string
+  ): Promise<AgendaItem> {
+    const oldDate = item.scheduled_date;
+    const updated = await this.baseService.rescheduleAgendaItem(item, newDate, newTime);
+    this.invalidateDate(oldDate);
+    this.invalidateDate(newDate);
+    return updated;
   }
 
-  async updateAgendaItem(itemId: string, updates: Partial<AgendaItem>): Promise<AgendaItem | null> {
-    const item = await this.baseService.updateAgendaItem(itemId, updates);
-    this.invalidateCache();
-    return item;
+  async updateAgendaItem(item: AgendaItem): Promise<void> {
+    await this.baseService.updateAgendaItem(item);
+    this.invalidateDate(item.scheduled_date);
   }
 
   async deleteAgendaItem(item: AgendaItem): Promise<boolean> {
     const result = await this.baseService.deleteAgendaItem(item);
-    this.invalidateCache();
+    this.invalidateDate(item.scheduled_date);
     return result;
   }
 
@@ -128,16 +198,43 @@ export class CachedAgendaService {
     return this.baseService.getOrphanedAgendaItems();
   }
 
-  async setTaskType(itemId: string, taskType: TaskType): Promise<AgendaItem | null> {
-    const item = await this.baseService.setTaskType(itemId, taskType);
-    this.invalidateCache();
-    return item;
+  async setTaskType(boardId: BoardId, taskId: TaskId, taskType: TaskType): Promise<void> {
+    const { projectId } = await this.baseService.getTaskFromBoard(boardId, taskId);
+    if (!projectId) {
+      await this.baseService.setTaskType(boardId, taskId, taskType);
+      this.invalidateCache();
+      return;
+    }
+
+    const items = await this.baseService.getAgendaItemsByTask(projectId, boardId, taskId);
+    await this.baseService.setTaskType(boardId, taskId, taskType);
+    items.forEach(item => this.invalidateDate(item.scheduled_date));
   }
 
-  async updateMeetingData(itemId: string, meetingData: MeetingData): Promise<AgendaItem | null> {
-    const item = await this.baseService.updateMeetingData(itemId, meetingData);
-    this.invalidateCache();
-    return item;
+  async updateMeetingData(boardId: BoardId, taskId: TaskId, meetingData: MeetingData): Promise<void> {
+    const { projectId } = await this.baseService.getTaskFromBoard(boardId, taskId);
+    if (!projectId) {
+      await this.baseService.updateMeetingData(boardId, taskId, meetingData);
+      this.invalidateCache();
+      return;
+    }
+
+    const items = await this.baseService.getAgendaItemsByTask(projectId, boardId, taskId);
+    await this.baseService.updateMeetingData(boardId, taskId, meetingData);
+    items.forEach(item => this.invalidateDate(item.scheduled_date));
+  }
+
+  async unscheduleTask(boardId: BoardId, taskId: TaskId): Promise<void> {
+    const { projectId } = await this.baseService.getTaskFromBoard(boardId, taskId);
+    if (!projectId) {
+      await this.baseService.unscheduleTask(boardId, taskId);
+      this.invalidateCache();
+      return;
+    }
+
+    const items = await this.baseService.getAgendaItemsByTask(projectId, boardId, taskId);
+    await this.baseService.unscheduleTask(boardId, taskId);
+    items.forEach(item => this.invalidateDate(item.scheduled_date));
   }
 
   destroy(): void {

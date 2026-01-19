@@ -1,8 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { ScheduledAgendaItem } from '../../services/AgendaService';
 import { OrphanedItemBadge } from './OrphanedItemBadge';
-import { TimeBlockBar } from './TimeBlockBar';
 import { theme } from '../theme/colors';
 import AppIcon, { AppIconName } from './icons/AppIcon';
 
@@ -10,57 +9,74 @@ interface AgendaItemCardProps {
   scheduledItem: ScheduledAgendaItem;
   onPress: () => void;
   onLongPress?: () => void;
+  onToggleComplete?: () => void;
 }
 
-export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
+type TaskType = 'meeting' | 'milestone' | null;
+
+const getTaskTypeIcon = (taskType: TaskType): AppIconName => {
+  switch (taskType) {
+    case 'meeting':
+      return 'users';
+    case 'milestone':
+      return 'milestone';
+    default:
+      return 'task';
+  }
+};
+
+const getTaskTypeMeta = (taskType: TaskType) => {
+  switch (taskType) {
+    case 'meeting':
+      return { label: 'Meeting', color: theme.accent.success };
+    case 'milestone':
+      return { label: 'Milestone', color: theme.accent.secondary };
+    default:
+      return { label: 'Task', color: theme.accent.primary };
+  }
+};
+
+const formatTime = (time: string | null) => {
+  if (!time) return null;
+  const [hours, minutes] = time.split(':');
+  const hour = parseInt(hours);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minutes} ${period}`;
+};
+
+const formatDuration = (minutes: number | null) => {
+  if (!minutes) return null;
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+};
+
+const AgendaItemCardComponent: React.FC<AgendaItemCardProps> = ({
   scheduledItem,
   onPress,
   onLongPress,
+  onToggleComplete,
 }) => {
   const { agendaItem, task, projectName, boardName, columnName, isOrphaned } = scheduledItem;
 
-  const getTaskTypeIcon = (): AppIconName => {
-    switch (agendaItem.task_type) {
-      case 'meeting':
-        return 'users';
-      case 'milestone':
-        return 'milestone';
-      default:
-        return 'task';
-    }
-  };
+  const taskTitle = useMemo(
+    () => task?.title || agendaItem.task_id,
+    [task?.title, agendaItem.task_id]
+  );
 
-  const getTaskTypeMeta = () => {
-    switch (agendaItem.task_type) {
-      case 'meeting':
-        return { label: 'Meeting', color: theme.accent.success };
-      case 'milestone':
-        return { label: 'Milestone', color: theme.accent.secondary };
-      default:
-        return { label: 'Task', color: theme.accent.primary };
-    }
-  };
+  const typeMeta = useMemo(
+    () => getTaskTypeMeta(agendaItem.task_type),
+    [agendaItem.task_type]
+  );
 
-  const formatTime = (time: string | null) => {
-    if (!time) return null;
-    const [hours, minutes] = time.split(':');
-    const hour = parseInt(hours);
-    const period = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-    return `${displayHour}:${minutes} ${period}`;
-  };
+  const timeLabel = useMemo(
+    () => formatTime(agendaItem.scheduled_time),
+    [agendaItem.scheduled_time]
+  );
 
-  const formatDuration = (minutes: number | null) => {
-    if (!minutes) return null;
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-  };
-
-  const taskTitle = task?.title || agendaItem.task_id;
-  const typeMeta = getTaskTypeMeta();
-  const timeLabel = formatTime(agendaItem.scheduled_time);
+  const isCompleted = !!agendaItem.completed_at;
 
   return (
     <TouchableOpacity
@@ -72,20 +88,45 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <View style={[styles.typeBadge, { backgroundColor: `${typeMeta.color}22` }]}>
-            <AppIcon name={getTaskTypeIcon()} size={16} color={typeMeta.color} />
+            <AppIcon name={getTaskTypeIcon(agendaItem.task_type)} size={16} color={typeMeta.color} />
           </View>
           <View style={styles.titleBlock}>
-            <Text style={[styles.title, isOrphaned && styles.titleOrphaned]} numberOfLines={2}>
+            <Text
+              style={[
+                styles.title,
+                isOrphaned && styles.titleOrphaned,
+                isCompleted && styles.titleCompleted,
+              ]}
+              numberOfLines={2}
+            >
               {taskTitle}
             </Text>
             <Text style={styles.typeLabel}>{typeMeta.label}</Text>
           </View>
         </View>
-        {timeLabel && (
-          <View style={styles.timeBadge}>
-            <Text style={styles.timeText}>{timeLabel}</Text>
-          </View>
-        )}
+        <View style={styles.headerActions}>
+          {!!onToggleComplete && (
+            <TouchableOpacity
+              style={[styles.completeToggle, isCompleted && styles.completeToggleDone]}
+              onPress={(event) => {
+                event.stopPropagation?.();
+                onToggleComplete();
+              }}
+              activeOpacity={0.7}
+            >
+              <AppIcon
+                name="check"
+                size={14}
+                color={isCompleted ? theme.background.primary : theme.accent.success}
+              />
+            </TouchableOpacity>
+          )}
+          {!isCompleted && timeLabel && (
+            <View style={styles.timeBadge}>
+              <Text style={styles.timeText}>{timeLabel}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {isOrphaned && (
@@ -98,22 +139,17 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
         <Text style={styles.metadataText} numberOfLines={1}>
           {projectName} / {boardName}
         </Text>
-        {columnName && !isOrphaned && (
-          <View style={styles.columnBadge}>
-            <Text style={styles.columnBadgeText}>{columnName}</Text>
+        {agendaItem.duration_minutes && (
+          <View style={styles.durationBadge}>
+            <AppIcon name="clock" size={12} color={theme.text.secondary} />
+            <Text style={styles.durationText}>
+              {formatDuration(agendaItem.duration_minutes)}
+            </Text>
           </View>
         )}
       </View>
 
       <View style={styles.detailsRow}>
-        {agendaItem.duration_minutes && (
-          <View style={styles.detailChip}>
-            <AppIcon name="clock" size={12} color={theme.text.secondary} />
-            <Text style={styles.detailChipText}>
-              {formatDuration(agendaItem.duration_minutes)}
-            </Text>
-          </View>
-        )}
         {agendaItem.meeting_data?.location && (
           <View style={styles.detailChip}>
             <AppIcon name="pin" size={12} color={theme.text.secondary} />
@@ -132,22 +168,31 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
         )}
       </View>
 
-      {agendaItem.duration_minutes && (
-        <TimeBlockBar
-          taskType={agendaItem.task_type}
-          durationMinutes={agendaItem.duration_minutes}
-          maxDurationMinutes={120}
-        />
-      )}
-
-      {task?.description && (
-        <Text style={styles.descriptionText} numberOfLines={1}>
-          {task.description}
-        </Text>
-      )}
     </TouchableOpacity>
   );
 };
+
+const arePropsEqual = (
+  prevProps: AgendaItemCardProps,
+  nextProps: AgendaItemCardProps
+): boolean => {
+  const prevItem = prevProps.scheduledItem;
+  const nextItem = nextProps.scheduledItem;
+
+  return (
+    prevItem.agendaItem.id === nextItem.agendaItem.id &&
+    prevItem.agendaItem.completed_at === nextItem.agendaItem.completed_at &&
+    prevItem.agendaItem.scheduled_time === nextItem.agendaItem.scheduled_time &&
+    prevItem.agendaItem.task_type === nextItem.agendaItem.task_type &&
+    prevItem.task?.title === nextItem.task?.title &&
+    prevItem.isOrphaned === nextItem.isOrphaned &&
+    prevProps.onPress === nextProps.onPress &&
+    prevProps.onLongPress === nextProps.onLongPress &&
+    prevProps.onToggleComplete === nextProps.onToggleComplete
+  );
+};
+
+export const AgendaItemCard = React.memo(AgendaItemCardComponent, arePropsEqual);
 
 const styles = StyleSheet.create({
   card: {
@@ -169,6 +214,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 10,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 8,
+  },
+  completeToggle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.accent.success,
+    backgroundColor: theme.card.background,
+  },
+  completeToggleDone: {
+    backgroundColor: theme.accent.success,
+    borderColor: theme.accent.success,
   },
   titleRow: {
     flex: 1,
@@ -194,6 +259,10 @@ const styles = StyleSheet.create({
   titleOrphaned: {
     color: theme.text.tertiary,
     textDecorationLine: 'line-through',
+  },
+  titleCompleted: {
+    textDecorationLine: 'line-through',
+    color: theme.text.tertiary,
   },
   typeLabel: {
     fontSize: 12,
@@ -227,17 +296,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.text.tertiary,
   },
-  columnBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 10,
+  durationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     backgroundColor: theme.background.elevated,
     borderWidth: 1,
     borderColor: theme.border.secondary,
     marginLeft: 8,
   },
-  columnBadgeText: {
-    fontSize: 10,
+  durationText: {
+    fontSize: 12,
     color: theme.text.secondary,
     fontWeight: '600',
   },

@@ -153,6 +153,23 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
     }
   };
 
+  const handleToggleComplete = async () => {
+    try {
+      const agendaItem = scheduledItem!.agendaItem;
+      if (agendaItem.completed_at) {
+        agendaItem.markIncomplete();
+      } else {
+        agendaItem.markComplete();
+      }
+
+      const agendaService = getAgendaService();
+      await agendaService.updateAgendaItem(agendaItem);
+      await loadAgendaItem();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update completion status');
+    }
+  };
+
   const handleNavigateToTask = () => {
     if (scheduledItem?.task && !scheduledItem.isOrphaned) {
       navigation.getParent()?.navigate('BoardsTab', {
@@ -199,6 +216,7 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
   }
 
   const { agendaItem, task, projectName, boardName, columnName, isOrphaned } = scheduledItem;
+  const isCompleted = !!agendaItem.completed_at;
 
   return (
     <Screen
@@ -242,6 +260,14 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
               {agendaItem.task_type === 'meeting' && 'Meeting'}
               {agendaItem.task_type === 'milestone' && 'Milestone'}
               {agendaItem.task_type === 'regular' && 'Regular'}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.infoRow}>
+          <Text style={styles.label}>Status</Text>
+          <View style={[styles.statusBadge, isCompleted && styles.statusBadgeCompleted]}>
+            <Text style={[styles.statusText, isCompleted && styles.statusTextCompleted]}>
+              {isCompleted ? 'Completed' : 'Pending'}
             </Text>
           </View>
         </View>
@@ -331,6 +357,18 @@ export const AgendaItemDetailScreen: React.FC<Props> = ({ route, navigation }) =
       </View>
 
       <View style={styles.actions}>
+        <TouchableOpacity
+          style={[styles.completeButton, isCompleted && styles.completeButtonDone]}
+          onPress={handleToggleComplete}
+        >
+          <View style={styles.actionButtonContent}>
+            <AppIcon name="check" size={16} color={isCompleted ? theme.accent.warning : theme.accent.success} />
+            <Text style={[styles.completeButtonText, isCompleted && styles.completeButtonTextDone]}>
+              {isCompleted ? 'Mark Incomplete' : 'Mark Complete'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.rescheduleButton} onPress={handleReschedule}>
           <View style={styles.actionButtonContent}>
             <AppIcon name="calendar" size={16} color={theme.accent.primary} />
@@ -497,8 +535,29 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: 12,
+    flexWrap: 'wrap',
     marginTop: 8,
     marginBottom: 32,
+  },
+  completeButton: {
+    flex: 1,
+    backgroundColor: theme.card.background,
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.accent.success,
+  },
+  completeButtonDone: {
+    borderColor: theme.accent.warning,
+  },
+  completeButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.accent.success,
+  },
+  completeButtonTextDone: {
+    color: theme.accent.warning,
   },
   actionButtonContent: {
     flexDirection: 'row',
@@ -533,5 +592,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: theme.accent.error,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    backgroundColor: theme.background.elevated,
+  },
+  statusBadgeCompleted: {
+    borderColor: theme.accent.success,
+    backgroundColor: theme.accent.success + '22',
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.text.secondary,
+  },
+  statusTextCompleted: {
+    color: theme.accent.success,
   },
 });

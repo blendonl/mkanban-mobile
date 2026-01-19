@@ -14,6 +14,8 @@ import AgendaScreen from '../screens/agenda/AgendaScreen';
 import AgendaDayScreen from '../screens/agenda/AgendaDayScreen';
 import TaskScheduleScreen from '../screens/agenda/TaskScheduleScreen';
 import { AgendaItemDetailScreen } from '../screens/agenda/AgendaItemDetailScreen';
+import GoalsListScreen from '../screens/goals/GoalsListScreen';
+import GoalDetailScreen from '../screens/goals/GoalDetailScreen';
 import NotesListScreen from '../screens/notes/NotesListScreen';
 import NoteEditorScreen from '../screens/notes/NoteEditorScreen';
 import TimeOverviewScreen from '../screens/time/TimeOverviewScreen';
@@ -61,10 +63,16 @@ export type TimeStackParamList = {
   TimeLogDetail: { date: string; projectId?: string };
 };
 
+export type GoalsStackParamList = {
+  GoalsList: undefined;
+  GoalDetail: { goalId: string };
+};
+
 export type RootTabParamList = {
   ProjectsTab: undefined;
   BoardsTab: undefined;
   AgendaTab: undefined;
+  GoalsTab: undefined;
   NotesTab: undefined;
   TimeTab: undefined;
   Settings: undefined;
@@ -74,6 +82,7 @@ const Tab = createBottomTabNavigator<RootTabParamList>();
 const ProjectStack = createStackNavigator<ProjectStackParamList>();
 const BoardStack = createStackNavigator<BoardStackParamList>();
 const AgendaStack = createStackNavigator<AgendaStackParamList>();
+const GoalsStack = createStackNavigator<GoalsStackParamList>();
 const NotesStack = createStackNavigator<NotesStackParamList>();
 const TimeStack = createStackNavigator<TimeStackParamList>();
 
@@ -120,6 +129,15 @@ function AgendaStackNavigator() {
   );
 }
 
+function GoalsStackNavigator() {
+  return (
+    <GoalsStack.Navigator screenOptions={screenOptions}>
+      <GoalsStack.Screen name="GoalsList" component={GoalsListScreen} />
+      <GoalsStack.Screen name="GoalDetail" component={GoalDetailScreen} />
+    </GoalsStack.Navigator>
+  );
+}
+
 function NotesStackNavigator() {
   return (
     <NotesStack.Navigator screenOptions={screenOptions}>
@@ -151,6 +169,7 @@ export default function TabNavigator() {
       <Tab.Screen name="ProjectsTab" component={ProjectsStackNavigator} />
       <Tab.Screen name="BoardsTab" component={BoardsStackNavigator} />
       <Tab.Screen name="AgendaTab" component={AgendaStackNavigator} />
+      <Tab.Screen name="GoalsTab" component={GoalsStackNavigator} />
       <Tab.Screen name="NotesTab" component={NotesStackNavigator} />
       <Tab.Screen name="TimeTab" component={TimeStackNavigator} />
     </Tab.Navigator>

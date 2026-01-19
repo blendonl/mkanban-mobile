@@ -13,6 +13,9 @@ export interface AgendaItemProps {
   task_type?: TaskType;
   meeting_data?: MeetingData | null;
   notes?: string;
+  completed_at?: Timestamp | null;
+  notification_id?: string | null;
+  is_recurring?: boolean;
   created_at?: Timestamp;
   updated_at?: Timestamp;
   file_path?: FilePath | null;
@@ -29,6 +32,9 @@ export class AgendaItem {
   task_type: TaskType;
   meeting_data: MeetingData | null;
   notes: string;
+  completed_at: Timestamp | null;
+  notification_id: string | null;
+  is_recurring: boolean;
   created_at: Timestamp;
   updated_at: Timestamp;
   file_path: FilePath | null;
@@ -44,6 +50,9 @@ export class AgendaItem {
     this.task_type = props.task_type || 'regular';
     this.meeting_data = props.meeting_data !== undefined ? props.meeting_data : null;
     this.notes = props.notes || "";
+    this.completed_at = props.completed_at !== undefined ? props.completed_at : null;
+    this.notification_id = props.notification_id !== undefined ? props.notification_id : null;
+    this.is_recurring = props.is_recurring !== undefined ? props.is_recurring : false;
 
     const created = props.created_at || now();
     this.created_at = created instanceof Date ? created : new Date(created);
@@ -82,6 +91,16 @@ export class AgendaItem {
     this.updated_at = now();
   }
 
+  markComplete(): void {
+    this.completed_at = now();
+    this.updated_at = now();
+  }
+
+  markIncomplete(): void {
+    this.completed_at = null;
+    this.updated_at = now();
+  }
+
   update(updates: Partial<AgendaItemProps>): void {
     Object.entries(updates).forEach(([key, value]) => {
       if (key !== 'id' && key !== 'created_at') {
@@ -107,6 +126,11 @@ export class AgendaItem {
     if (this.task_type !== 'regular') result.task_type = this.task_type;
     if (this.meeting_data) result.meeting_data = this.meeting_data;
     if (this.notes) result.notes = this.notes;
+    result.completed_at = this.completed_at instanceof Date
+      ? this.completed_at.toISOString()
+      : this.completed_at;
+    result.notification_id = this.notification_id;
+    result.is_recurring = this.is_recurring;
 
     return result;
   }
@@ -130,6 +154,9 @@ export class AgendaItem {
       task_type: data.task_type || 'regular',
       meeting_data: data.meeting_data || null,
       notes: data.notes || "",
+      completed_at: parseDate(data.completed_at) || null,
+      notification_id: data.notification_id || null,
+      is_recurring: data.is_recurring || false,
       created_at: parseDate(data.created_at),
       updated_at: parseDate(data.updated_at),
       file_path: data.file_path,

@@ -22,6 +22,7 @@ import { CachedBoardService } from "../services/CachedBoardService";
 import { CachedProjectService } from "../services/CachedProjectService";
 import { MarkdownNoteRepository } from "../infrastructure/storage/MarkdownNoteRepository";
 import { MarkdownAgendaRepository } from "../infrastructure/storage/MarkdownAgendaRepository";
+import { MarkdownGoalRepository } from "../infrastructure/storage/MarkdownGoalRepository";
 import { TimeTrackingService } from "../services/TimeTrackingService";
 import { YamlTimeLogRepository } from "../infrastructure/storage/YamlTimeLogRepository";
 import { StorageConfig } from "./StorageConfig";
@@ -33,6 +34,7 @@ import { ActionEngine } from "../services/ActionEngine";
 import { MissedActionsManager } from "../services/MissedActionsManager";
 import { GoogleCalendarRepository } from "../infrastructure/calendar/GoogleCalendarRepository";
 import { CalendarSyncService } from "../services/CalendarSyncService";
+import { GoalService } from "../services/GoalService";
 import { registerBackgroundFileWatcherTask } from "../infrastructure/daemon/BackgroundFileWatcherTask";
 import { DaemonRunner } from "../infrastructure/daemon/DaemonRunner";
 import { FileChangeDetector } from "../infrastructure/daemon/FileChangeDetector";
@@ -138,10 +140,28 @@ export class DependencyContainer {
         const baseService = new AgendaService(
           this.get(BoardService),
           this.get(ProjectService),
+          this.get(TaskService),
           this.get(MarkdownAgendaRepository),
+          this.get(NotificationService),
         );
         return new CachedAgendaService(baseService);
       },
+    );
+
+    // Goal Repository
+    this.factories.set(
+      MarkdownGoalRepository,
+      () => new MarkdownGoalRepository(this.get(FileSystemManager)),
+    );
+
+    // Goal Service
+    this.factories.set(
+      GoalService,
+      () => new GoalService(
+        this.get(MarkdownGoalRepository),
+        this.get(BoardService),
+        this.get(MarkdownAgendaRepository),
+      ),
     );
 
     // Note Repository
@@ -609,6 +629,20 @@ export function getAgendaService(): AgendaService {
 }
 
 /**
+ * Get the goal repository
+ */
+export function getGoalRepository(): MarkdownGoalRepository {
+  return getContainer().get(MarkdownGoalRepository);
+}
+
+/**
+ * Get the goal service
+ */
+export function getGoalService(): GoalService {
+  return getContainer().get(GoalService);
+}
+
+/**
  * Get the note repository
  */
 export function getNoteRepository(): MarkdownNoteRepository {
@@ -649,4 +683,3 @@ export function getCalendarRepository(): GoogleCalendarRepository {
 export function getCalendarSyncService(): CalendarSyncService {
   return getContainer().get(CalendarSyncService);
 }
-

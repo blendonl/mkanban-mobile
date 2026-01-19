@@ -8,6 +8,8 @@ export interface AgendaRepository {
 
   loadAgendaItemByTask(projectId: ProjectId, boardId: BoardId, taskId: TaskId): Promise<AgendaItem | null>;
 
+  loadAgendaItemsByTask(projectId: ProjectId, boardId: BoardId, taskId: TaskId): Promise<AgendaItem[]>;
+
   loadAgendaItemById(agendaItemId: string): Promise<AgendaItem | null>;
 
   loadAllAgendaItems(): Promise<AgendaItem[]>;

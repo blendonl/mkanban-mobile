@@ -9,6 +9,7 @@ export type ColumnId = string;
 export type BoardId = string;
 export type ParentId = string;
 export type ProjectId = string;
+export type GoalId = string;
 export type NoteId = string;
 export type TimeLogId = string;
 export type CalendarEventId = string;

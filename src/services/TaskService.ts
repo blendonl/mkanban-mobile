@@ -16,6 +16,7 @@ import {
 import { generateManualItemId, getBoardPrefix } from '../utils/stringUtils';
 import { DEFAULT_ISSUE_TYPE } from '../core/constants';
 import { getEventBus } from '../core/EventBus';
+import { logger } from '../utils/logger';
 
 export class TaskService {
   private storage: StorageRepository;
@@ -38,12 +39,12 @@ export class TaskService {
     description: string = '',
     parentId?: ParentId | null
   ): Promise<Task> {
-    console.info(`[TaskService] Creating task: ${title} in board: ${board.name}`);
+    logger.info(`[TaskService] Creating task: ${title} in board: ${board.name}`);
     this.validator.validateTaskTitle(title);
 
     const column = board.getColumnById(columnId);
     if (!column) {
-      console.warn(`[TaskService] Column not found: ${columnId}`);
+      logger.warn(`[TaskService] Column not found: ${columnId}`);
       throw new ColumnNotFoundError(`Column with id '${columnId}' not found`);
     }
 
@@ -53,7 +54,7 @@ export class TaskService {
     if (parentId) {
       const parent = board.getParentById(parentId);
       if (!parent) {
-        console.warn(`[TaskService] Parent not found: ${parentId}`);
+        logger.warn(`[TaskService] Parent not found: ${parentId}`);
         throw new ValidationError(`Parent with id '${parentId}' not found`);
       }
     }
@@ -70,7 +71,7 @@ export class TaskService {
     // Set default issue type for manually created tasks
     task.metadata.issue_type = DEFAULT_ISSUE_TYPE;
 
-    console.info(
+    logger.info(
       `[TaskService] Successfully created task: ${title} [${taskId}] in column: ${column.name}`
     );
 
@@ -146,7 +147,7 @@ export class TaskService {
    * @throws {ValidationError} if deletion fails
    */
   async deleteTask(board: Board, taskId: TaskId): Promise<boolean> {
-    console.info(`[TaskService] Deleting task: ${taskId} from board: ${board.name}`);
+    logger.info(`[TaskService] Deleting task: ${taskId} from board: ${board.name}`);
 
     for (const column of board.columns) {
       const task = column.getTaskById(taskId);
@@ -166,7 +167,7 @@ export class TaskService {
         const success = column.removeTask(taskId);
         if (success) {
           await this.storage.saveBoardToStorage(board);
-          console.info(`[TaskService] Successfully deleted task: ${task.title}`);
+          logger.info(`[TaskService] Successfully deleted task: ${task.title}`);
 
           // Emit task deleted event
           await getEventBus().publish('task_deleted', {
@@ -181,7 +182,7 @@ export class TaskService {
       }
     }
 
-    console.warn(`[TaskService] Task not found for deletion: ${taskId}`);
+    logger.warn(`[TaskService] Task not found for deletion: ${taskId}`);
     throw new ItemNotFoundError(`Task with id '${taskId}' not found`);
   }
 

@@ -13,6 +13,7 @@ import { BoardNotFoundError, ValidationError } from "../core/exceptions";
 import { getEventBus } from "../core/EventBus";
 import { FileSystemManager } from "../infrastructure/storage/FileSystemManager";
 import { ProjectService } from "./ProjectService";
+import { logger } from "../utils/logger";
 
 export class BoardService {
   private repository: BoardRepository;
@@ -75,19 +76,18 @@ export class BoardService {
    * @throws {BoardNotFoundError} if board not found
    */
   async getBoardById(boardId: BoardId): Promise<Board> {
-    console.debug(`[BoardService] Loading board by id: ${boardId}`);
+    logger.debug(`[BoardService] Loading board by id: ${boardId}`);
     const board = await this.repository.loadBoardById(boardId);
 
     if (!board) {
-      console.warn(`[BoardService] Board not found: ${boardId}`);
+      logger.warn(`[BoardService] Board not found: ${boardId}`);
       throw new BoardNotFoundError(`Board with id '${boardId}' not found`);
     }
 
-    console.info(
+    logger.info(
       `[BoardService] Successfully loaded board: ${board.name} ugugaga`,
     );
 
-    // Emit board loaded event
     await getEventBus().publish("board_loaded", {
       boardId: board.id,
       boardName: board.name,
@@ -95,6 +95,30 @@ export class BoardService {
     });
 
     return board;
+  }
+
+  async getBoardsByIds(boardIds: Set<BoardId>): Promise<Map<BoardId, Board>> {
+    const boards = new Map<BoardId, Board>();
+
+    const results = await Promise.all(
+      Array.from(boardIds).map(async (boardId) => {
+        try {
+          const board = await this.repository.loadBoardById(boardId);
+          return { boardId, board };
+        } catch (error) {
+          logger.warn(`[BoardService] Failed to load board ${boardId}:`, error);
+          return { boardId, board: null };
+        }
+      })
+    );
+
+    results.forEach(({ boardId, board }) => {
+      if (board) {
+        boards.set(boardId, board);
+      }
+    });
+
+    return boards;
   }
 
   /**
@@ -106,7 +130,7 @@ export class BoardService {
     name: string,
     description: string = "",
   ): Promise<Board> {
-    console.info(
+    logger.info(
       `[BoardService] Creating new board: ${name} in project: ${projectId}`,
     );
     this.validator.validateBoardName(name);
@@ -120,7 +144,7 @@ export class BoardService {
     );
 
     if (boardExists) {
-      console.warn(`[BoardService] Board already exists: ${name}`);
+      logger.warn(`[BoardService] Board already exists: ${name}`);
       throw new ValidationError(
         `Board with name '${name}' already exists in project`,
       );
@@ -133,7 +157,7 @@ export class BoardService {
     board.addColumn("Done", 2);
 
     await this.repository.saveBoard(board, project.slug);
-    console.info(`[BoardService] Successfully created board: ${name}`);
+    logger.info(`[BoardService] Successfully created board: ${name}`);
 
     await getEventBus().publish("board_created", {
       boardId: board.id,
@@ -149,14 +173,14 @@ export class BoardService {
    * @throws {ValidationError} if board structure is invalid
    */
   async saveBoard(board: Board): Promise<void> {
-    console.debug(`[BoardService] Saving board: ${board.name}`);
+    logger.debug(`[BoardService] Saving board: ${board.name}`);
     this.validator.validateBoard(board);
 
     const projectService = this.getProjectService();
     const project = await projectService.getProjectById(board.project_id);
 
     await this.repository.saveBoard(board, project.slug);
-    console.info(`[BoardService] Successfully saved board: ${board.name}`);
+    logger.info(`[BoardService] Successfully saved board: ${board.name}`);
 
     await getEventBus().publish("board_updated", {
       boardId: board.id,
@@ -209,7 +233,7 @@ export class BoardService {
     columnName: string,
     position?: number | null,
   ): Promise<Column> {
-    console.info(
+    logger.info(
       `[BoardService] Adding column '${columnName}' to board '${board.name}'`,
     );
     this.validator.validateColumnName(columnName);
@@ -217,7 +241,7 @@ export class BoardService {
     // Check for duplicate column names (case-insensitive)
     for (const existingColumn of board.columns) {
       if (existingColumn.name.toLowerCase() === columnName.toLowerCase()) {
-        console.warn(`[BoardService] Column already exists: ${columnName}`);
+        logger.warn(`[BoardService] Column already exists: ${columnName}`);
         throw new ValidationError(
           `Column '${columnName}' already exists in board`,
         );
@@ -225,7 +249,7 @@ export class BoardService {
     }
 
     const column = board.addColumn(columnName, position);
-    console.info(
+    logger.info(
       `[BoardService] Successfully added column '${columnName}' to board '${board.name}'`,
     );
 

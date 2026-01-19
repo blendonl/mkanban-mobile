@@ -19,6 +19,9 @@ export interface MeetingData {
 export interface RecurrenceRule {
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval?: number;
+  daysOfWeek?: number[];
+  dayOfMonth?: number;
+  times?: string[];
   endDate?: string;
   count?: number;
 }
