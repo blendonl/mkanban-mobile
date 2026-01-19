@@ -13,7 +13,7 @@ mobile/
 │   │   ├── compatibility/          # Python-TypeScript compatibility tests
 │   │   │   └── MarkdownCompatibility.test.ts
 │   │   ├── fixtures/               # Test fixtures and sample data
-│   │   │   ├── sample-board-kanban.md
+│   │   │   ├── sample-board.md
 │   │   │   └── sample-item-task.md
 │   │   └── integration/            # Integration tests
 │   │       └── UserFlows.test.ts
@@ -95,7 +95,7 @@ describe('generateIdFromName', () => {
 
 **Example:**
 ```typescript
-it('should save board with kanban.md', async () => {
+it('should save board with board.md', async () => {
   const board = new Board('test-board', 'Test Board', [], []);
   const result = await repository.saveBoard(board);
   expect(result).toBe(true);
@@ -302,7 +302,7 @@ Add to `.vscode/launch.json`:
 ## Test Fixtures
 
 ### Sample Board Format
-See `src/__tests__/fixtures/sample-board-kanban.md` for Python-compatible board format.
+See `src/__tests__/fixtures/sample-board.md` for Python-compatible board format.
 
 ### Sample Item Format
 See `src/__tests__/fixtures/sample-item-task.md` for Python-compatible item format.

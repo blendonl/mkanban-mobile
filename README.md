@@ -210,7 +210,7 @@ This mobile app uses the same markdown file format as the Python desktop version
 
 ### File Format
 
-**Board File (kanban.md):**
+**Board File (board.md):**
 ```yaml
 ---
 id: my-project
