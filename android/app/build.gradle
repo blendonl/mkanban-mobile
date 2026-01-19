@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.mkanban.mobile'
+    namespace 'com.mkanban.mprojectmanager'
     defaultConfig {
-        applicationId 'com.mkanban.mobile'
+        applicationId 'com.mkanban.mprojectmanager'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

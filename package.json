@@ -1,5 +1,5 @@
 {
-  "name": "mobile",
+  "name": "mprojectmanager",
   "version": "2.0.0",
   "main": "index.ts",
   "scripts": {
@@ -47,6 +47,7 @@
     "yaml": "^2.8.1"
   },
   "devDependencies": {
+    "@react-native-community/cli": "latest",
     "@testing-library/react-native": "^13.3.3",
     "@types/babel__core": "^7.20.5",
     "@types/jest": "^30.0.0",
