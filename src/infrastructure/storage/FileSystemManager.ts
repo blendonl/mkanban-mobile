@@ -190,8 +190,8 @@ export class FileSystemManager {
       const projects: string[] = [];
 
       for (const subdirPath of subdirs) {
-        const projectYmlPath = `${subdirPath}project.yml`;
-        const exists = await this.fileExists(projectYmlPath);
+        const projectMdPath = `${subdirPath}project.md`;
+        const exists = await this.fileExists(projectMdPath);
         if (exists) {
           const projectSlug = subdirPath.split('/').filter(p => p).pop() || '';
           projects.push(projectSlug);
@@ -482,7 +482,7 @@ export class FileSystemManager {
       const boards: string[] = [];
 
       for (const subdirPath of subdirs) {
-        const kanbanFilePath = `${subdirPath}kanban.md`;
+        const kanbanFilePath = `${subdirPath}board.md`;
         const kanbanInfo = await FileSystem.getInfoAsync(kanbanFilePath);
         if (kanbanInfo.exists) {
           const boardName = subdirPath.split('/').filter(p => p).pop() || '';

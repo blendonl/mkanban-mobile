@@ -26,7 +26,7 @@ export class MarkdownParser {
   constructor(private fileSystem: FileSystemManager) {}
 
   /**
-   * Parse board metadata from kanban.md file
+   * Parse board metadata from board.md file
    * Returns board name and metadata
    */
   async parseBoardMetadata(filePath: string): Promise<ParsedBoard> {
@@ -90,7 +90,7 @@ export class MarkdownParser {
   }
 
   /**
-   * Save board metadata to kanban.md file
+   * Save board metadata to board.md file
    */
   async saveBoardMetadata(
     filePath: string,

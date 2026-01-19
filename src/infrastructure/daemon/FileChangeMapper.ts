@@ -37,7 +37,7 @@ export class FileChangeMapper implements IFileChangeMapper {
       return 'board';
     }
 
-    if (relativePath.includes('/projects/') && (relativePath.endsWith('project.yaml') || relativePath.endsWith('project.yml'))) {
+    if (relativePath.includes('/projects/') && relativePath.endsWith('project.md')) {
       return 'project';
     }
 

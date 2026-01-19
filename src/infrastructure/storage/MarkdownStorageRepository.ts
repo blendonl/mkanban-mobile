@@ -7,7 +7,7 @@
 import { FileSystemManager } from "./FileSystemManager";
 import { MarkdownParser } from "./MarkdownParser";
 import { BoardPersistence } from "./BoardPersistence";
-import { findTaskFileById, getTasksDirectoryPath } from "./FileOperations";
+import { findTaskFileById } from "./FileOperations";
 import { StorageRepository } from "../../domain/repositories/StorageRepository";
 import { Board } from "../../domain/entities/Board";
 import { Column } from "../../domain/entities/Column";
@@ -61,11 +61,10 @@ export class MarkdownStorageRepository implements StorageRepository {
       const projectBoardsDir = this.fileSystem.getProjectBoardsDirectory(board.project_id);
       const boardDir = `${projectBoardsDir}${board.id}/`;
       const columnDir = `${boardDir}${column.id}/`;
-      const tasksDir = getTasksDirectoryPath(columnDir);
       const taskFile = await findTaskFileById(
         this.fileSystem,
         this.parser,
-        tasksDir,
+        columnDir,
         task.id
       );
 

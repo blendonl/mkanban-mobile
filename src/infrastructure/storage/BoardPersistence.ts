@@ -60,8 +60,10 @@ export class BoardPersistence {
     try {
       const boardDir = getBoardDirectoryPath(boardsDir, boardName);
       const columnDir = getColumnDirectoryPath(boardDir, columnName);
+      const tasksDir = getTasksDirectoryPath(columnDir);
 
       await this.fileSystem.ensureDirectoryExists(columnDir);
+      await this.fileSystem.ensureDirectoryExists(tasksDir);
 
       const taskId = taskData.id;
       const title = taskData.title;
@@ -82,7 +84,7 @@ export class BoardPersistence {
         taskId
       );
 
-      const taskFolder = `${columnDir}${folderName}/`;
+      const taskFolder = `${tasksDir}${folderName}/`;
       const newTaskFile = `${taskFolder}task.md`;
 
       if (oldTaskFile && oldTaskFile !== newTaskFile) {
@@ -159,8 +161,10 @@ export class BoardPersistence {
       const boardDir = getBoardDirectoryPath(boardsDir, boardName);
       const oldColumnDir = getColumnDirectoryPath(boardDir, oldColumnName);
       const newColumnDir = getColumnDirectoryPath(boardDir, newColumnName);
+      const newTasksDir = getTasksDirectoryPath(newColumnDir);
 
       await this.fileSystem.ensureDirectoryExists(newColumnDir);
+      await this.fileSystem.ensureDirectoryExists(newTasksDir);
 
       const taskId = taskData.id;
 
@@ -182,7 +186,7 @@ export class BoardPersistence {
           taskId
         );
 
-        const newTaskFolder = `${newColumnDir}${folderName}/`;
+        const newTaskFolder = `${newTasksDir}${folderName}/`;
 
         await this.fileSystem.renameFile(oldTaskFolder, newTaskFolder);
 
@@ -253,7 +257,7 @@ export class BoardPersistence {
   }
 
   /**
-   * Get the path to a board's kanban.md file
+   * Get the path to a board's board.md file
    */
   getBoardFilePath(boardsDir: string, boardName: string): string {
     const boardDir = getBoardDirectoryPath(boardsDir, boardName);

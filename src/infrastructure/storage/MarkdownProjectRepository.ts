@@ -1,3 +1,4 @@
+import matter from "gray-matter";
 import * as YAML from 'yaml';
 import { FileSystemManager } from "./FileSystemManager";
 import { ProjectRepository } from "../../domain/repositories/ProjectRepository";
@@ -5,7 +6,7 @@ import { Project } from "../../domain/entities/Project";
 import { ProjectId } from "../../core/types";
 import { now } from "../../utils/dateUtils";
 
-const PROJECT_FILENAME = 'project.yml';
+const PROJECT_FILENAME = 'project.md';
 
 export class MarkdownProjectRepository implements ProjectRepository {
   private fileSystem: FileSystemManager;
@@ -54,7 +55,8 @@ export class MarkdownProjectRepository implements ProjectRepository {
       }
 
       const content = await this.fileSystem.readFile(projectFile);
-      const data = YAML.parse(content);
+      const parsed = matter(content);
+      const data = parsed.data || {};
 
       return new Project({
         id: data.id || slug,
@@ -96,7 +98,8 @@ export class MarkdownProjectRepository implements ProjectRepository {
       };
 
       const yamlContent = YAML.stringify(data);
-      await this.fileSystem.writeFile(projectFile, yamlContent);
+      const fileContent = `---\n${yamlContent}---\n\n# ${project.name}\n`;
+      await this.fileSystem.writeFile(projectFile, fileContent);
     } catch (error) {
       throw new Error(`Failed to save project "${project.name}": ${error}`);
     }

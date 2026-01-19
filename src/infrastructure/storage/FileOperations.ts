@@ -20,12 +20,13 @@ export async function findTaskFileById(
   taskId: TaskId
 ): Promise<string | null> {
   try {
-    const exists = await fileSystem.directoryExists(columnDir);
+    const tasksDir = getTasksDirectoryPath(columnDir);
+    const exists = await fileSystem.directoryExists(tasksDir);
     if (!exists) {
       return null;
     }
 
-    const taskFolders = await fileSystem.listDirectories(columnDir);
+    const taskFolders = await fileSystem.listDirectories(tasksDir);
 
     for (const taskFolder of taskFolders) {
       const taskFile = `${taskFolder}task.md`;
@@ -65,7 +66,8 @@ export async function getUniqueFolderName(
   maxRetries: number = 100
 ): Promise<string> {
   const baseName = getSafeFilename(taskTitle);
-  const basePath = `${columnDir}${baseName}/`;
+  const tasksDir = getTasksDirectoryPath(columnDir);
+  const basePath = `${tasksDir}${baseName}/`;
   const exists = await fileSystem.directoryExists(basePath);
 
   if (!exists) {
@@ -86,7 +88,7 @@ export async function getUniqueFolderName(
 
   for (let i = 2; i <= maxRetries; i++) {
     const testName = `${baseName}-${i}`;
-    const testPath = `${columnDir}${testName}/`;
+    const testPath = `${tasksDir}${testName}/`;
     const testExists = await fileSystem.directoryExists(testPath);
 
     if (!testExists) {
@@ -145,12 +147,13 @@ export async function cleanupTaskFiles(
   currentTaskIds: Set<TaskId>
 ): Promise<void> {
   try {
-    const exists = await fileSystem.directoryExists(columnDir);
+    const tasksDir = getTasksDirectoryPath(columnDir);
+    const exists = await fileSystem.directoryExists(tasksDir);
     if (!exists) {
       return;
     }
 
-    const taskFolders = await fileSystem.listDirectories(columnDir);
+    const taskFolders = await fileSystem.listDirectories(tasksDir);
 
     for (const taskFolder of taskFolders) {
       const taskFile = `${taskFolder}task.md`;

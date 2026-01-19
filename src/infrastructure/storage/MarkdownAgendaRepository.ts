@@ -384,7 +384,7 @@ export class MarkdownAgendaRepository implements AgendaRepository {
     try {
       const projectDir = this.fileSystem.getProjectDirectory(item.project_id);
       const boardDir = `${projectDir}boards/${item.board_id}/`;
-      const boardFile = `${boardDir}kanban.md`;
+      const boardFile = `${boardDir}board.md`;
 
       const boardExists = await this.fileSystem.fileExists(boardFile);
       if (!boardExists) {

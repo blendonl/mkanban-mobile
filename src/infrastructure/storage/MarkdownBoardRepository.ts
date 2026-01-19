@@ -125,7 +125,7 @@ export class MarkdownBoardRepository implements BoardRepository {
   }
 
   /**
-   * Load a board from its kanban.md file
+   * Load a board from its board.md file
    */
   async loadBoardFromFile(
     kanbanFile: string,
@@ -391,7 +391,12 @@ export class MarkdownBoardRepository implements BoardRepository {
     columnDir: string,
   ): Promise<void> {
     try {
-      const taskFolders = await this.fileSystem.listDirectories(columnDir);
+      const tasksDir = getTasksDirectoryPath(columnDir);
+      if (!await this.fileSystem.directoryExists(tasksDir)) {
+        return;
+      }
+
+      const taskFolders = await this.fileSystem.listDirectories(tasksDir);
 
       for (const taskFolder of taskFolders) {
         const taskFile = `${taskFolder}task.md`;
@@ -596,7 +601,7 @@ export class MarkdownBoardRepository implements BoardRepository {
 
   /**
    * Extract project slug from a path
-   * Example: "storage/projects/my-project/boards/default/kanban.md" -> "my-project"
+   * Example: "storage/projects/my-project/boards/default/board.md" -> "my-project"
    */
   private extractProjectSlugFromPath(path: string): string | null {
     const parts = path.split("/").filter((p) => p.length > 0);

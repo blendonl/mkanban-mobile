@@ -44,9 +44,7 @@ export class TaskStorageMigration {
   private async migrateColumnTasks(columnDir: string): Promise<void> {
     const tasksDir = getTasksDirectoryPath(columnDir);
 
-    if (!await this.fileSystem.directoryExists(tasksDir)) {
-      return;
-    }
+    await this.fileSystem.ensureDirectoryExists(tasksDir);
 
     const taskFiles = await this.fileSystem.listFiles(tasksDir, "*.md");
 
@@ -68,7 +66,7 @@ export class TaskStorageMigration {
           taskId
         );
 
-        const taskFolder = `${columnDir}${folderName}/`;
+        const taskFolder = `${tasksDir}${folderName}/`;
         const newTaskFile = `${taskFolder}task.md`;
 
         await this.fileSystem.ensureDirectoryExists(taskFolder);
@@ -80,8 +78,28 @@ export class TaskStorageMigration {
       }
     }
 
+    const columnTaskFolders = await this.fileSystem.listDirectories(columnDir);
+    for (const taskFolder of columnTaskFolders) {
+      if (taskFolder === tasksDir) {
+        continue;
+      }
+
+      const taskFile = `${taskFolder}task.md`;
+      if (!await this.fileSystem.fileExists(taskFile)) {
+        continue;
+      }
+
+      const folderName = taskFolder.split("/").filter(Boolean).pop();
+      if (!folderName) {
+        continue;
+      }
+
+      const newTaskFolder = `${tasksDir}${folderName}/`;
+      await this.fileSystem.renameFile(taskFolder, newTaskFolder);
+    }
+
     const remainingFiles = await this.fileSystem.listFiles(tasksDir);
-    if (remainingFiles.length === 0) {
+    if (remainingFiles.length === 0 && (await this.fileSystem.listDirectories(tasksDir)).length === 0) {
       await this.fileSystem.deleteDirectory(tasksDir);
     }
   }
