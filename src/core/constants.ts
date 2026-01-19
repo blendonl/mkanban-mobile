@@ -4,7 +4,7 @@
  */
 
 // File structure constants
-export const BOARD_FILENAME = "kanban.md";
+export const BOARD_FILENAME = "board.md";
 export const COLUMNS_FOLDER_NAME = "columns";
 export const COLUMN_METADATA_FILENAME = "column.md";
 export const TASKS_FOLDER_NAME = "tasks";
