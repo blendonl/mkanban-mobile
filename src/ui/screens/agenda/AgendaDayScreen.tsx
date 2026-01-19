@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,18 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import theme from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
-import { getAgendaService } from '../../../core/DependencyContainer';
+import { getAgendaService, getGoalService } from '../../../core/DependencyContainer';
 import { ScheduledAgendaItem, DayAgenda } from '../../../services/AgendaService';
 import { AgendaStackParamList } from '../../navigation/TabNavigator';
 import { TimeBlockBar } from '../../components/TimeBlockBar';
 import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
+import ValueInputModal from '../../components/ValueInputModal';
 
 type AgendaDayRouteProp = RouteProp<AgendaStackParamList, 'AgendaDay'>;
 type AgendaDayNavProp = StackNavigationProp<AgendaStackParamList, 'AgendaDay'>;
@@ -36,12 +38,20 @@ export default function AgendaDayScreen() {
   const [dayAgenda, setDayAgenda] = useState<DayAgenda | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [unfinishedItems, setUnfinishedItems] = useState<ScheduledAgendaItem[]>([]);
+  const [showValueInput, setShowValueInput] = useState(false);
+  const [selectedMeasurableTask, setSelectedMeasurableTask] = useState<ScheduledAgendaItem | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadDayData = useCallback(async () => {
     try {
       const agendaService = getAgendaService();
-      const data = await agendaService.getTasksForDate(date);
+      const [data, unfinished] = await Promise.all([
+        agendaService.getTasksForDate(date),
+        agendaService.getUnfinishedItems(date),
+      ]);
       setDayAgenda(data);
+      setUnfinishedItems(unfinished);
     } catch (error) {
       console.error('Failed to load day data:', error);
     } finally {
@@ -61,6 +71,19 @@ export default function AgendaDayScreen() {
     });
     navigation.setOptions({ title: displayDate });
   }, [date, navigation]);
+
+  useEffect(() => {
+    if (isCurrentDay()) {
+      checkExpiredBlocks();
+      timerRef.current = setInterval(checkExpiredBlocks, 60000);
+
+      return () => {
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+      };
+    }
+  }, [isCurrentDay, checkExpiredBlocks]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -83,6 +106,87 @@ export default function AgendaDayScreen() {
       console.error('Failed to update agenda item status:', error);
     }
   };
+
+  const handleLogProgress = (item: ScheduledAgendaItem) => {
+    setSelectedMeasurableTask(item);
+    setShowValueInput(true);
+  };
+
+  const handleSaveValue = async (value: number) => {
+    if (!selectedMeasurableTask) return;
+
+    try {
+      const agendaService = getAgendaService();
+      await agendaService.updateActualValue(selectedMeasurableTask.agendaItem.id, value);
+
+      if (selectedMeasurableTask.task?.goal_id) {
+        const goalService = getGoalService();
+        await goalService.updateGoalProgress(selectedMeasurableTask.task.goal_id, value);
+      }
+
+      await loadDayData();
+      setShowValueInput(false);
+      setSelectedMeasurableTask(null);
+    } catch (error) {
+      console.error('Failed to save progress value:', error);
+      Alert.alert('Error', 'Failed to save progress value');
+    }
+  };
+
+  const handleDeleteUnfinished = async (item: ScheduledAgendaItem) => {
+    Alert.alert(
+      'Delete Unfinished Task',
+      'Are you sure you want to delete this task from your agenda?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const agendaService = getAgendaService();
+              await agendaService.deleteAgendaItem(item.agendaItem);
+              await loadDayData();
+            } catch (error) {
+              console.error('Failed to delete unfinished item:', error);
+              Alert.alert('Error', 'Failed to delete item');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRescheduleUnfinished = (item: ScheduledAgendaItem) => {
+    navigation.navigate('AgendaItemDetail', {
+      agendaItemId: item.agendaItem.id,
+    });
+  };
+
+  const checkExpiredBlocks = useCallback(async () => {
+    if (!isCurrentDay()) return;
+
+    const now = new Date();
+    const items = dayAgenda?.items || [];
+    let needsReload = false;
+
+    for (const item of items) {
+      if (item.agendaItem.completed_at || item.agendaItem.is_unfinished) continue;
+      if (!item.agendaItem.scheduled_time || !item.agendaItem.duration_minutes) continue;
+
+      const scheduledTime = new Date(`${date}T${item.agendaItem.scheduled_time}`);
+      const endTime = new Date(scheduledTime.getTime() + item.agendaItem.duration_minutes * 60000);
+
+      if (now > endTime) {
+        needsReload = true;
+        break;
+      }
+    }
+
+    if (needsReload) {
+      await loadDayData();
+    }
+  }, [isCurrentDay, dayAgenda, date, loadDayData]);
 
   const getTasksForHour = (hour: number): ScheduledAgendaItem[] => {
     if (!dayAgenda) return [];
@@ -124,72 +228,112 @@ export default function AgendaDayScreen() {
     return new Date(date).toDateString() === today.toDateString();
   };
 
-  const renderTaskCard = (item: ScheduledAgendaItem, compact: boolean = false) => {
+  const renderTaskCard = (item: ScheduledAgendaItem, compact: boolean = false, showUnfinishedActions: boolean = false) => {
     const { agendaItem, task, boardName, isOrphaned } = item;
     const icon = TASK_TYPE_ICONS[agendaItem.task_type];
     const duration = agendaItem.duration_minutes;
     const taskTitle = task?.title || agendaItem.task_id;
     const isCompleted = !!agendaItem.completed_at;
+    const isMeasurable = task?.target_value && task?.value_unit;
 
     return (
-      <TouchableOpacity
-        key={agendaItem.id}
-        style={[styles.taskCard, compact && styles.taskCardCompact, isOrphaned && styles.taskCardOrphaned]}
-        onPress={() => navigation.navigate('AgendaItemDetail', { agendaItemId: agendaItem.id })}
-      >
-        <View style={styles.taskCardLeft}>
-          <View style={styles.taskIconBadge}>
-            <AppIcon name={icon} size={14} color={theme.text.secondary} />
+      <View key={agendaItem.id} style={[styles.taskCardWrapper, compact && styles.taskCardCompact]}>
+        <TouchableOpacity
+          style={[
+            styles.taskCard,
+            isOrphaned && styles.taskCardOrphaned,
+            showUnfinishedActions && styles.taskCardUnfinished,
+          ]}
+          onPress={() => navigation.navigate('AgendaItemDetail', { agendaItemId: agendaItem.id })}
+        >
+          <View style={styles.taskCardLeft}>
+            <View style={styles.taskIconBadge}>
+              <AppIcon name={icon} size={14} color={theme.text.secondary} />
+            </View>
           </View>
-        </View>
-        <View style={styles.taskCardContent}>
-          <Text
-            style={[
-              styles.taskTitle,
-              isOrphaned && styles.taskTitleOrphaned,
-              isCompleted && styles.taskTitleCompleted,
-            ]}
-            numberOfLines={1}
-          >
-            {taskTitle}
-          </Text>
-          <View style={styles.taskMeta}>
-            <Text style={styles.taskBoard}>{boardName}</Text>
+          <View style={styles.taskCardContent}>
+            <Text
+              style={[
+                styles.taskTitle,
+                isOrphaned && styles.taskTitleOrphaned,
+                isCompleted && styles.taskTitleCompleted,
+              ]}
+              numberOfLines={1}
+            >
+              {taskTitle}
+            </Text>
+            <View style={styles.taskMeta}>
+              <Text style={styles.taskBoard}>{boardName}</Text>
+              {duration && (
+                <Text style={styles.taskDuration}>{duration} min</Text>
+              )}
+              {isMeasurable && (
+                <Text style={styles.taskMeasurable}>
+                  {task.target_value} {task.value_unit}
+                </Text>
+              )}
+            </View>
             {duration && (
-              <Text style={styles.taskDuration}>{duration} min</Text>
+              <TimeBlockBar
+                taskType={agendaItem.task_type}
+                durationMinutes={duration}
+                maxDurationMinutes={120}
+              />
             )}
           </View>
-          {duration && (
-            <TimeBlockBar
-              taskType={agendaItem.task_type}
-              durationMinutes={duration}
-              maxDurationMinutes={120}
-            />
+          {agendaItem.task_type === 'meeting' && agendaItem.meeting_data?.location && (
+            <View style={styles.taskLocation}>
+              <AppIcon name="pin" size={14} color={theme.text.tertiary} />
+              <Text style={styles.taskLocationText} numberOfLines={1}>
+                {agendaItem.meeting_data.location}
+              </Text>
+            </View>
           )}
-        </View>
-        {agendaItem.task_type === 'meeting' && agendaItem.meeting_data?.location && (
-          <View style={styles.taskLocation}>
-            <AppIcon name="pin" size={14} color={theme.text.tertiary} />
-            <Text style={styles.taskLocationText} numberOfLines={1}>
-              {agendaItem.meeting_data.location}
-            </Text>
+          {isMeasurable && !showUnfinishedActions && (
+            <TouchableOpacity
+              style={styles.progressButton}
+              onPress={(event) => {
+                event.stopPropagation?.();
+                handleLogProgress(item);
+              }}
+            >
+              <AppIcon name="trending-up" size={14} color={theme.accent.primary} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.completeToggle, isCompleted && styles.completeToggleDone]}
+            onPress={(event) => {
+              event.stopPropagation?.();
+              handleToggleComplete(item);
+            }}
+            activeOpacity={0.7}
+          >
+            <AppIcon
+              name="check"
+              size={14}
+              color={isCompleted ? theme.background.primary : theme.accent.success}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+        {showUnfinishedActions && (
+          <View style={styles.unfinishedActions}>
+            <TouchableOpacity
+              style={styles.unfinishedActionButton}
+              onPress={() => handleRescheduleUnfinished(item)}
+            >
+              <AppIcon name="clock" size={14} color={theme.accent.primary} />
+              <Text style={styles.unfinishedActionText}>Reschedule</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.unfinishedActionButton, styles.unfinishedActionButtonDanger]}
+              onPress={() => handleDeleteUnfinished(item)}
+            >
+              <AppIcon name="trash" size={14} color={theme.status.error} />
+              <Text style={[styles.unfinishedActionText, styles.unfinishedActionTextDanger]}>Delete</Text>
+            </TouchableOpacity>
           </View>
         )}
-        <TouchableOpacity
-          style={[styles.completeToggle, isCompleted && styles.completeToggleDone]}
-          onPress={(event) => {
-            event.stopPropagation?.();
-            handleToggleComplete(item);
-          }}
-          activeOpacity={0.7}
-        >
-          <AppIcon
-            name="check"
-            size={14}
-            color={isCompleted ? theme.background.primary : theme.accent.success}
-          />
-        </TouchableOpacity>
-      </TouchableOpacity>
+      </View>
     );
   };
 
@@ -250,6 +394,19 @@ export default function AgendaDayScreen() {
         />
       }
     >
+      {unfinishedItems.length > 0 && (
+        <View style={[styles.section, styles.unfinishedSection]}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <AppIcon name="alert-circle" size={16} color={theme.status.error} />
+              <Text style={[styles.sectionTitle, styles.unfinishedTitle]}>Unfinished</Text>
+            </View>
+            <Text style={styles.sectionCount}>{unfinishedItems.length}</Text>
+          </View>
+          {unfinishedItems.map(task => renderTaskCard(task, false, true))}
+        </View>
+      )}
+
       {unscheduledTasks.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -273,6 +430,18 @@ export default function AgendaDayScreen() {
       )}
 
       <View style={styles.bottomPadding} />
+
+      <ValueInputModal
+        visible={showValueInput}
+        onClose={() => {
+          setShowValueInput(false);
+          setSelectedMeasurableTask(null);
+        }}
+        onSave={handleSaveValue}
+        valueUnit={selectedMeasurableTask?.task?.value_unit}
+        currentValue={selectedMeasurableTask?.agendaItem.actual_value || 0}
+        targetValue={selectedMeasurableTask?.task?.target_value}
+      />
     </ScrollView>
   );
 }
@@ -480,5 +649,75 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: spacing.xxl,
+  },
+  taskCardWrapper: {
+    marginBottom: spacing.sm,
+  },
+  taskCardUnfinished: {
+    borderColor: theme.status.error,
+    borderWidth: 1.5,
+  },
+  unfinishedSection: {
+    backgroundColor: theme.status.error + '10',
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  unfinishedTitle: {
+    color: theme.status.error,
+  },
+  unfinishedActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  unfinishedActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    backgroundColor: theme.background.elevated,
+    borderWidth: 1,
+    borderColor: theme.accent.primary,
+  },
+  unfinishedActionButtonDanger: {
+    borderColor: theme.status.error,
+  },
+  unfinishedActionText: {
+    color: theme.accent.primary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  unfinishedActionTextDanger: {
+    color: theme.status.error,
+  },
+  taskMeasurable: {
+    color: theme.text.muted,
+    fontSize: 11,
+    marginLeft: spacing.sm,
+    backgroundColor: theme.accent.primary + '20',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: theme.accent.primary,
+  },
+  progressButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.accent.primary,
+    backgroundColor: theme.card.background,
+    marginLeft: spacing.sm,
   },
 });

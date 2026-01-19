@@ -37,6 +37,8 @@ export interface AgendaFormData {
   taskType: TaskType;
   location?: string;
   attendees?: string[];
+  isAllDay?: boolean;
+  actualValue?: number;
 }
 
 export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
@@ -63,6 +65,8 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
   const [taskType, setTaskType] = useState<TaskType>('regular');
   const [location, setLocation] = useState('');
   const [attendees, setAttendees] = useState('');
+  const [isAllDay, setIsAllDay] = useState(false);
+  const [actualValue, setActualValue] = useState<number | undefined>();
 
   const stepIndex = {
     project: 1,
@@ -105,6 +109,8 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
     setTaskType('regular');
     setLocation('');
     setAttendees('');
+    setIsAllDay(false);
+    setActualValue(undefined);
   };
 
   const loadBoards = async (projectId: ProjectId) => {
@@ -170,11 +176,13 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
       boardId: selectedBoard.id,
       taskId: selectedTask.id,
       date,
-      time: time || undefined,
-      durationMinutes: duration,
+      time: isAllDay ? undefined : (time || undefined),
+      durationMinutes: isAllDay ? undefined : duration,
       taskType,
       location: taskType === 'meeting' && location ? location : undefined,
       attendees: taskType === 'meeting' && attendees ? attendees.split(',').map(a => a.trim()) : undefined,
+      isAllDay,
+      actualValue,
     };
 
     try {
@@ -314,6 +322,22 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
         />
       </View>
 
+      <TouchableOpacity
+        style={styles.allDayToggle}
+        onPress={() => setIsAllDay(!isAllDay)}
+      >
+        <View style={styles.allDayToggleContent}>
+          <AppIcon
+            name={isAllDay ? 'check-square' : 'square'}
+            size={20}
+            color={isAllDay ? theme.primary : theme.text.secondary}
+          />
+          <Text style={styles.allDayToggleText}>All day task</Text>
+        </View>
+      </TouchableOpacity>
+
+      {!isAllDay && (
+        <>
       <View style={styles.formSection}>
         <Text style={styles.label}>Time (optional)</Text>
         <TextInput
@@ -339,6 +363,24 @@ export const AgendaItemFormModal: React.FC<AgendaItemFormModalProps> = ({
           placeholderTextColor={theme.text.tertiary}
         />
       </View>
+        </>
+      )}
+
+      {selectedTask?.target_value && selectedTask?.value_unit && (
+        <View style={styles.formSection}>
+          <Text style={styles.label}>
+            Initial Value ({selectedTask.value_unit}) - Target: {selectedTask.target_value}
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={actualValue?.toString() || ''}
+            onChangeText={(text) => setActualValue(text ? parseFloat(text) : undefined)}
+            placeholder="0"
+            keyboardType="numeric"
+            placeholderTextColor={theme.text.tertiary}
+          />
+        </View>
+      )}
 
       <View style={styles.formSection}>
         <Text style={styles.label}>Task Type</Text>
@@ -533,6 +575,18 @@ const styles = StyleSheet.create({
     borderColor: theme.input.border,
     borderRadius: 8,
     padding: 12,
+    fontSize: 16,
+    color: theme.text.primary,
+  },
+  allDayToggle: {
+    marginBottom: 16,
+  },
+  allDayToggleContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  allDayToggleText: {
     fontSize: 16,
     color: theme.text.primary,
   },

@@ -262,6 +262,11 @@ export default function SettingsScreen() {
       const calendarService = getCalendarSyncService();
       const result = await calendarService.sync();
 
+      if (!result) {
+        showToast('Calendar sync failed', 'error');
+        return;
+      }
+
       if (result.success) {
         showToast(
           `Synced: ${result.eventsCreated} created, ${result.eventsUpdated} updated`,
@@ -269,7 +274,8 @@ export default function SettingsScreen() {
         );
         await loadCalendarSettings();
       } else {
-        showToast(result.error || 'Sync failed', 'error');
+        const errorMessage = result.error || 'Sync failed';
+        showToast(errorMessage, 'error');
       }
     } catch (error) {
       console.error('Calendar sync error:', error);

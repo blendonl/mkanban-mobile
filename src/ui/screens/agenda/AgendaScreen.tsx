@@ -3,12 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   SectionList,
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
   Alert,
+  TextInput,
 } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -23,8 +23,12 @@ import { AgendaItemFormModal, AgendaFormData } from '../../components/AgendaItem
 import AppIcon, { AppIconName } from '../../components/icons/AppIcon';
 import { Project } from '../../../domain/entities/Project';
 import { Board } from '../../../domain/entities/Board';
-import { getBoardService } from '../../../core/DependencyContainer';
+import { getBoardService, getGoalService } from '../../../core/DependencyContainer';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import TaskSelectorModal from '../../components/TaskSelectorModal';
+import { ScheduledTask } from '../../../services/AgendaService';
+import { Goal } from '../../../domain/entities/Goal';
+import { useDebounce } from '../../hooks/useDebounce';
 
 type AgendaScreenNavProp = StackNavigationProp<AgendaStackParamList, 'AgendaMain'>;
 
@@ -46,9 +50,17 @@ export default function AgendaScreen() {
   const [loading, setLoading] = useState(true);
   const [monthLoading, setMonthLoading] = useState(false);
   const [showFormModal, setShowFormModal] = useState(false);
+  const [showTaskSelector, setShowTaskSelector] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const [lastRefreshTime, setLastRefreshTime] = useState(0);
+  const [unfinishedItems, setUnfinishedItems] = useState<ScheduledAgendaItem[]>([]);
+  const [allScheduledItems, setAllScheduledItems] = useState<ScheduledAgendaItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'all' | 'unfinished'>('all');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const debouncedSearchQuery = useDebounce(searchQuery.trim());
 
   const CACHE_FRESHNESS_MS = 30000;
   const fabBottom = uiConstants.TAB_BAR_HEIGHT + uiConstants.TAB_BAR_BOTTOM_MARGIN + insets.bottom + 24;
@@ -93,6 +105,29 @@ export default function AgendaScreen() {
     }
   }, [monthAnchor]);
 
+  const loadUnfinished = useCallback(async () => {
+    try {
+      const agendaService = getAgendaService();
+      const items = await agendaService.getUnfinishedItems();
+      setUnfinishedItems(items);
+    } catch (error) {
+      console.error('Failed to load unfinished items:', error);
+    }
+  }, []);
+
+  const loadAllScheduledItems = useCallback(async () => {
+    try {
+      setSearchLoading(true);
+      const agendaService = getAgendaService();
+      const items = await agendaService.getAllScheduledItems();
+      setAllScheduledItems(items);
+    } catch (error) {
+      console.error('Failed to load all scheduled items:', error);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
   const loadSingleDay = useCallback(async (date: string) => {
     try {
       const agendaService = getAgendaService();
@@ -117,22 +152,29 @@ export default function AgendaScreen() {
   }, [viewMode]);
 
   const refreshAgendaData = useCallback(async () => {
-    await loadWeekData();
-    if (viewMode === 'month') {
-      await loadMonthData();
-    }
+    await Promise.all([
+      loadWeekData(),
+      loadUnfinished(),
+      viewMode === 'month' ? loadMonthData() : Promise.resolve(),
+      allScheduledItems.length > 0 ? loadAllScheduledItems() : Promise.resolve(),
+    ]);
     setLastRefreshTime(Date.now());
-  }, [loadWeekData, loadMonthData, viewMode]);
+  }, [loadWeekData, loadMonthData, loadUnfinished, viewMode, allScheduledItems.length, loadAllScheduledItems]);
 
   const loadProjects = async () => {
     try {
-      console.log('Loading projects...');
+      console.log('Loading projects and goals...');
       const projectService = getProjectService();
-      const allProjects = await projectService.getAllProjects();
-      console.log('Loaded projects:', allProjects.length);
+      const goalService = getGoalService();
+      const [allProjects, allGoals] = await Promise.all([
+        projectService.getAllProjects(),
+        goalService.getAllGoals(),
+      ]);
+      console.log('Loaded projects:', allProjects.length, 'goals:', allGoals.length);
       setProjects(allProjects);
+      setGoals(allGoals);
     } catch (error) {
-      console.error('Failed to load projects:', error);
+      console.error('Failed to load projects and goals:', error);
     }
   };
 
@@ -147,6 +189,20 @@ export default function AgendaScreen() {
       loadMonthData();
     }
   }, [viewMode, loadMonthData]);
+
+  useEffect(() => {
+    loadUnfinished();
+  }, [loadUnfinished]);
+
+  useEffect(() => {
+    if (debouncedSearchQuery.length === 0 || searchMode === 'unfinished') {
+      return;
+    }
+
+    if (allScheduledItems.length === 0) {
+      loadAllScheduledItems();
+    }
+  }, [debouncedSearchQuery, searchMode, allScheduledItems.length, loadAllScheduledItems]);
 
   useAutoRefresh(['agenda_invalidated'], refreshAgendaData);
 
@@ -354,21 +410,20 @@ export default function AgendaScreen() {
     setSelectedDate(new Date(next.getFullYear(), next.getMonth(), 1));
   };
 
-  const handleViewModeToggle = () => {
-    const nextMode = viewMode === 'week' ? 'month' : 'week';
-    setViewMode(nextMode);
-    if (nextMode === 'week') {
-      setWeekStart(getMonday(selectedDate));
-    } else {
+  const toggleViewMode = () => {
+    if (viewMode === 'week') {
+      setViewMode('month');
       setMonthAnchor(getMonthStart(selectedDate));
+    } else {
+      setViewMode('week');
+      setWeekStart(getMonday(selectedDate));
     }
   };
 
   const renderWeekHeader = () => {
-    const monthYear = (viewMode === 'month' ? monthAnchor : selectedDate).toLocaleDateString('en-US', {
-      month: 'long',
-      year: 'numeric',
-    });
+    const headerDate = viewMode === 'month' ? monthAnchor : selectedDate;
+    const monthLabel = headerDate.toLocaleDateString('en-US', { month: 'short' });
+    const yearLabel = headerDate.toLocaleDateString('en-US', { year: 'numeric' });
     const goPrev = viewMode === 'month' ? goToPreviousMonth : goToPreviousWeek;
     const goNext = viewMode === 'month' ? goToNextMonth : goToNextWeek;
 
@@ -378,19 +433,22 @@ export default function AgendaScreen() {
           <TouchableOpacity onPress={goPrev} style={styles.navButton}>
             <AppIcon name="arrow-left" size={16} color={theme.text.secondary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={goToToday} style={styles.monthButton}>
-            <Text style={styles.monthText}>{monthYear}</Text>
-          </TouchableOpacity>
+          <View style={styles.calendarTitleRow}>
+            <TouchableOpacity onPress={goToToday} style={styles.monthButton}>
+              <Text style={styles.monthText}>{monthLabel}</Text>
+              <Text style={styles.yearText}>{yearLabel}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.viewToggleButton, styles.viewToggleButtonActive]}
+              onPress={toggleViewMode}
+            >
+              <Text style={[styles.viewToggleText, styles.viewToggleTextActive]}>
+                {viewMode === 'week' ? 'W' : 'M'}
+              </Text>
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity onPress={goNext} style={styles.navButton}>
             <AppIcon name="arrow-right" size={16} color={theme.text.secondary} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.calendarControls}>
-          <TouchableOpacity onPress={handleViewModeToggle} style={styles.viewToggleButton}>
-            <AppIcon name="calendar" size={14} color={theme.text.secondary} />
-            <Text style={styles.viewToggleText}>
-              {viewMode === 'week' ? 'Week view' : 'Month view'}
-            </Text>
           </TouchableOpacity>
         </View>
         {viewMode === 'week' ? (
@@ -420,7 +478,7 @@ export default function AgendaScreen() {
                   <Text style={[
                     styles.dayNumber,
                     isSelected(date) && styles.dayNumberSelected,
-                    isToday(date) && styles.dayNumberToday,
+                    isToday(date) && !isSelected(date) && styles.dayNumberToday,
                   ]}>
                     {date.getDate()}
                   </Text>
@@ -511,6 +569,94 @@ export default function AgendaScreen() {
     />
   ), [handleAgendaItemPress, handleAgendaItemLongPress, handleToggleComplete]);
 
+  const goalTitleMap = useMemo(() => {
+    return new Map(goals.map(goal => [goal.id, goal.title]));
+  }, [goals]);
+
+  const searchSections = useMemo(() => {
+    if (debouncedSearchQuery.length === 0) {
+      return [];
+    }
+
+    const sourceItems = searchMode === 'unfinished' ? unfinishedItems : allScheduledItems;
+    const normalizedQuery = debouncedSearchQuery.toLowerCase();
+
+    const matchesQuery = (item: ScheduledAgendaItem) => {
+      const projectName = item.projectName || '';
+      const taskTitle = item.task?.title || '';
+      const goalTitle = item.task?.goal_id ? goalTitleMap.get(item.task.goal_id) || '' : '';
+      const haystack = `${projectName} ${taskTitle} ${goalTitle}`.toLowerCase();
+      return haystack.includes(normalizedQuery);
+    };
+
+    const filtered = sourceItems.filter(matchesQuery);
+    const grouped = new Map<string, ScheduledAgendaItem[]>();
+    filtered.forEach(item => {
+      const dateKey = item.agendaItem.scheduled_date;
+      const existing = grouped.get(dateKey) || [];
+      existing.push(item);
+      grouped.set(dateKey, existing);
+    });
+
+    return Array.from(grouped.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dateKey, items]) => ({
+        title: formatSearchDateLabel(dateKey),
+        data: items.sort((left, right) => {
+          const leftTime = left.agendaItem.scheduled_time || '';
+          const rightTime = right.agendaItem.scheduled_time || '';
+          return leftTime.localeCompare(rightTime);
+        }),
+      }));
+  }, [debouncedSearchQuery, searchMode, unfinishedItems, allScheduledItems, goalTitleMap]);
+
+  const renderSearchResults = () => {
+    if (searchLoading) {
+      return (
+        <View style={styles.searchLoading}>
+          <ActivityIndicator size="small" color={theme.accent.primary} />
+          <Text style={styles.searchLoadingText}>Searching...</Text>
+        </View>
+      );
+    }
+
+    if (searchSections.length === 0) {
+      return (
+        <View style={styles.searchEmpty}>
+          <AppIcon name="search" size={26} color={theme.text.muted} />
+          <Text style={styles.searchEmptyTitle}>No matching tasks</Text>
+          <Text style={styles.searchEmptySubtitle}>Try a project, goal, or task name.</Text>
+        </View>
+      );
+    }
+
+    return (
+      <SectionList
+        sections={searchSections}
+        keyExtractor={(item) => item.agendaItem.id}
+        renderItem={renderAgendaItem}
+        renderSectionHeader={({ section }) => (
+          <View style={styles.searchSectionHeader}>
+            <Text style={styles.searchSectionText}>{section.title}</Text>
+            <View style={styles.searchSectionPill}>
+              <Text style={styles.searchSectionCount}>{section.data.length}</Text>
+            </View>
+          </View>
+        )}
+        contentContainerStyle={styles.dayListContent}
+        stickySectionHeadersEnabled={false}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accent.primary}
+          />
+        }
+      />
+    );
+  };
+
   const renderSectionHeader = useCallback(({ section }: { section: AgendaSection }) => (
     <View style={styles.sectionHeader}>
       <View style={styles.sectionTitleRow}>
@@ -525,19 +671,31 @@ export default function AgendaScreen() {
     </View>
   ), []);
 
+  const handleTaskSelected = useCallback((scheduledTask: ScheduledTask) => {
+    setShowTaskSelector(false);
+    setShowFormModal(true);
+  }, []);
+
   const renderDayContent = () => {
+    if (debouncedSearchQuery.length > 0) {
+      return renderSearchResults();
+    }
+
     const dayAgenda = getSelectedDayAgenda();
     const selectedDateStr = selectedDate.toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
     });
-    const meetingCount = dayAgenda?.meetings.length || 0;
-    const taskCount = dayAgenda?.regularTasks.length || 0;
-    const milestoneCount = dayAgenda?.milestones.length || 0;
-    const orphanedCount = dayAgenda?.orphanedItems.length || 0;
 
-    if (!dayAgenda || dayAgenda.items.length === 0) {
+    const timeBlocks = (dayAgenda?.items || []).filter(
+      item => item.agendaItem.scheduled_time && !item.agendaItem.is_unfinished
+    );
+    const allDayTasks = (dayAgenda?.items || []).filter(
+      item => !item.agendaItem.scheduled_time || item.agendaItem.is_all_day
+    );
+
+    if (!dayAgenda || (dayAgenda.items.length === 0 && unfinishedItems.length === 0)) {
       return (
         <View style={styles.emptyDay}>
           <AppIcon name="calendar" size={28} color={theme.text.muted} />
@@ -554,10 +712,9 @@ export default function AgendaScreen() {
     }
 
     const sections: AgendaSection[] = [
-      { title: 'Meetings', icon: 'users', data: dayAgenda.meetings },
-      { title: 'Tasks', icon: 'task', data: dayAgenda.regularTasks },
-      { title: 'Milestones', icon: 'milestone', data: dayAgenda.milestones },
-      { title: 'Orphaned Items', icon: 'alert', data: dayAgenda.orphanedItems },
+      { title: 'Unfinished', icon: 'alert-circle', data: unfinishedItems },
+      { title: 'Time Blocks', icon: 'clock', data: timeBlocks },
+      { title: 'All Day', icon: 'sun', data: allDayTasks },
     ].filter(section => section.data.length > 0);
 
     return (
@@ -604,14 +761,73 @@ export default function AgendaScreen() {
   return (
     <Screen hasTabBar>
       {renderWeekHeader()}
+
+      <View style={styles.searchCard}>
+        <View style={styles.searchInputRow}>
+          <AppIcon name="search" size={16} color={theme.text.muted} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search tasks, projects, goals"
+            placeholderTextColor={theme.text.muted}
+            style={styles.searchInput}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+        </View>
+        {searchQuery.trim().length > 0 && (
+          <View style={styles.searchToggleRow}>
+            <TouchableOpacity
+              style={[
+                styles.searchToggleButton,
+                searchMode === 'all' && styles.searchToggleButtonActive,
+              ]}
+              onPress={() => setSearchMode('all')}
+            >
+              <Text
+                style={[
+                  styles.searchToggleText,
+                  searchMode === 'all' && styles.searchToggleTextActive,
+                ]}
+              >
+                All
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.searchToggleButton,
+                searchMode === 'unfinished' && styles.searchToggleButtonActive,
+              ]}
+              onPress={() => setSearchMode('unfinished')}
+            >
+              <Text
+                style={[
+                  styles.searchToggleText,
+                  searchMode === 'unfinished' && styles.searchToggleTextActive,
+                ]}
+              >
+                Unfinished
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
       {renderDayContent()}
 
       <TouchableOpacity
         style={[styles.fab, { bottom: fabBottom }]}
-        onPress={() => setShowFormModal(true)}
+        onPress={() => setShowTaskSelector(true)}
       >
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
+
+      <TaskSelectorModal
+        visible={showTaskSelector}
+        onClose={() => setShowTaskSelector(false)}
+        onTaskSelected={handleTaskSelected}
+      />
 
       <AgendaItemFormModal
         visible={showFormModal}
@@ -642,16 +858,14 @@ function getMonthEnd(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
-function getMonthGridDays(date: Date): Date[] {
-  const start = getMonthStart(date);
-  const gridStart = getMonday(start);
-  const days: Date[] = [];
-  for (let i = 0; i < 42; i++) {
-    const day = new Date(gridStart);
-    day.setDate(gridStart.getDate() + i);
-    days.push(day);
-  }
-  return days;
+function formatSearchDateLabel(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 const styles = StyleSheet.create({
@@ -689,6 +903,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  calendarTitleRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
   monthButton: {
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
@@ -696,31 +917,141 @@ const styles = StyleSheet.create({
     backgroundColor: theme.background.elevated,
     borderWidth: 1,
     borderColor: theme.border.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    minWidth: 80,
   },
   monthText: {
     color: theme.text.primary,
-    fontSize: 16,
+    fontSize: 14,
+    lineHeight: 16,
     fontWeight: '700',
   },
-  calendarControls: {
-    alignItems: 'flex-end',
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.sm,
+  yearText: {
+    color: theme.text.secondary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
   },
   viewToggleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: theme.border.secondary,
-    backgroundColor: theme.background.elevated,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  viewToggleButtonActive: {
+    backgroundColor: theme.accent.primary,
   },
   viewToggleText: {
     fontSize: 12,
     color: theme.text.secondary,
+    fontWeight: '600',
+  },
+  viewToggleTextActive: {
+    color: theme.background.primary,
+    fontWeight: '700',
+  },
+  searchCard: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.border.primary,
+    backgroundColor: theme.background.secondary,
+    gap: spacing.sm,
+  },
+  searchInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    backgroundColor: theme.background.elevated,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: spacing.sm,
+    color: theme.text.primary,
+    fontSize: 14,
+  },
+  searchToggleRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  searchToggleButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    backgroundColor: theme.background.elevated,
+    alignItems: 'center',
+  },
+  searchToggleButtonActive: {
+    borderColor: theme.accent.primary,
+    backgroundColor: theme.accent.primary,
+  },
+  searchToggleText: {
+    color: theme.text.secondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  searchToggleTextActive: {
+    color: theme.background.primary,
+    fontWeight: '700',
+  },
+  searchLoading: {
+    paddingTop: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  searchLoadingText: {
+    color: theme.text.secondary,
+    fontSize: 12,
+  },
+  searchEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  searchEmptyTitle: {
+    color: theme.text.primary,
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+  },
+  searchEmptySubtitle: {
+    color: theme.text.secondary,
+    fontSize: 13,
+    marginTop: spacing.xs,
+  },
+  searchSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  searchSectionText: {
+    color: theme.text.secondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  searchSectionPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border.secondary,
+    backgroundColor: theme.background.elevated,
+  },
+  searchSectionCount: {
+    color: theme.text.muted,
+    fontSize: 11,
     fontWeight: '600',
   },
   daysRow: {
@@ -766,7 +1097,7 @@ const styles = StyleSheet.create({
     color: theme.background.primary,
   },
   dayNumberToday: {
-    color: theme.accent.primary,
+    color: theme.text.primary,
   },
   dayCount: {
     marginTop: spacing.xs,

@@ -77,6 +77,13 @@ export const theme = {
     error: CatppuccinColors.red,
     info: CatppuccinColors.sapphire,
   },
+  // Status colors for alerts and badges
+  status: {
+    success: CatppuccinColors.green,
+    warning: CatppuccinColors.yellow,
+    error: CatppuccinColors.red,
+    info: CatppuccinColors.sapphire,
+  },
 
   // Parent/tag colors (matching the existing ParentColor enum)
   parent: {

@@ -38,7 +38,7 @@ export default function BoardListScreen({ navigation }: Props) {
   const [newBoardDescription, setNewBoardDescription] = useState("");
 
   const boardService = getBoardService();
-  const { currentProject } = useCurrentProject();
+  const currentProject = useCurrentProject();
 
   const loadBoards = useCallback(async () => {
     if (!currentProject) {

@@ -78,6 +78,9 @@ const AgendaItemCardComponent: React.FC<AgendaItemCardProps> = ({
 
   const isCompleted = !!agendaItem.completed_at;
 
+  const hasDetailChips = !!agendaItem.meeting_data?.location
+    || (!!agendaItem.meeting_data?.attendees && agendaItem.meeting_data.attendees.length > 0);
+
   return (
     <TouchableOpacity
       style={[styles.card, { borderLeftColor: typeMeta.color }]}
@@ -149,24 +152,26 @@ const AgendaItemCardComponent: React.FC<AgendaItemCardProps> = ({
         )}
       </View>
 
-      <View style={styles.detailsRow}>
-        {agendaItem.meeting_data?.location && (
-          <View style={styles.detailChip}>
-            <AppIcon name="pin" size={12} color={theme.text.secondary} />
-            <Text style={styles.detailChipText} numberOfLines={1}>
-              {agendaItem.meeting_data.location}
-            </Text>
-          </View>
-        )}
-        {agendaItem.meeting_data?.attendees && agendaItem.meeting_data.attendees.length > 0 && (
-          <View style={styles.detailChip}>
-            <AppIcon name="users" size={12} color={theme.text.secondary} />
-            <Text style={styles.detailChipText}>
-              {agendaItem.meeting_data.attendees.length} {agendaItem.meeting_data.attendees.length === 1 ? 'person' : 'people'}
-            </Text>
-          </View>
-        )}
-      </View>
+      {hasDetailChips && (
+        <View style={styles.detailsRow}>
+          {agendaItem.meeting_data?.location && (
+            <View style={styles.detailChip}>
+              <AppIcon name="pin" size={12} color={theme.text.secondary} />
+              <Text style={styles.detailChipText} numberOfLines={1}>
+                {agendaItem.meeting_data.location}
+              </Text>
+            </View>
+          )}
+          {agendaItem.meeting_data?.attendees && agendaItem.meeting_data.attendees.length > 0 && (
+            <View style={styles.detailChip}>
+              <AppIcon name="users" size={12} color={theme.text.secondary} />
+              <Text style={styles.detailChipText}>
+                {agendaItem.meeting_data.attendees.length} {agendaItem.meeting_data.attendees.length === 1 ? 'person' : 'people'}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
 
     </TouchableOpacity>
   );
@@ -198,7 +203,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.card.background,
     borderRadius: 12,
-    padding: 14,
+    padding: 10,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: theme.card.border,
