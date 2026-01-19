@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,23 +6,27 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { BoardStackParamList } from '../navigation/TabNavigator';
 import { Board } from '../../domain/entities/Board';
-import { Task } from '../../domain/entities/Task';
-import { Parent } from '../../domain/entities/Parent';
+import { Task, TaskPriority } from '../../domain/entities/Task';
 import { IssueType } from '../../core/enums';
 import { getTaskService, getBoardService } from '../../core/DependencyContainer';
 import ParentBadge from '../components/ParentBadge';
-import theme from '../theme';
+import theme from '../theme/colors';
+import { spacing } from '../theme/spacing';
+import { uiConstants } from '../theme/uiConstants';
 import { getIssueTypeIcon, getAllIssueTypes } from '../../utils/issueTypeUtils';
 import alertService from '../../services/AlertService';
-import { uiConstants } from '../theme';
 import { Screen } from '../components/Screen';
 import AppIcon from '../components/icons/AppIcon';
+import AutoSaveIndicator, { SaveStatus } from '../components/AutoSaveIndicator';
+import { useDebounce } from '../hooks/useDebounce';
 
 type ItemDetailScreenNavigationProp = StackNavigationProp<BoardStackParamList, 'ItemDetail'>;
 type ItemDetailScreenRouteProp = RouteProp<BoardStackParamList, 'ItemDetail'>;
@@ -32,9 +36,18 @@ interface Props {
   route: ItemDetailScreenRouteProp;
 }
 
+const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
+  { value: 'high', label: 'High', color: theme.status.error },
+  { value: 'medium', label: 'Medium', color: theme.status.warning },
+  { value: 'low', label: 'Low', color: theme.status.info },
+  { value: 'none', label: 'None', color: theme.text.muted },
+];
+
 export default function ItemDetailScreen({ navigation, route }: Props) {
   const { boardId, itemId, columnId } = route.params;
-  const isCreateMode = !itemId;
+  const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
+  const currentTaskId = itemId ?? createdTaskId;
+  const isCreateMode = !currentTaskId;
 
   const [board, setBoard] = useState<Board | null>(null);
   const [task, setTask] = useState<Task | null>(null);
@@ -43,15 +56,18 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   const [description, setDescription] = useState('');
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null);
   const [selectedIssueType, setSelectedIssueType] = useState<string>(IssueType.TASK);
-  const [saving, setSaving] = useState(false);
+  const [priority, setPriority] = useState<TaskPriority>('none');
   const [showParentPicker, setShowParentPicker] = useState(false);
-  const [showIssueTypePicker, setShowIssueTypePicker] = useState(false);
-  const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
+  const [activeMetaPicker, setActiveMetaPicker] = useState<'priority' | 'issueType' | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
 
   const taskService = getTaskService();
   const boardService = getBoardService();
+  const isInitialMount = useRef(true);
 
-  // Load board and item on mount
+  const debouncedTitle = useDebounce(title, uiConstants.AUTO_SAVE_DEBOUNCE_TIME);
+  const debouncedDescription = useDebounce(description, uiConstants.AUTO_SAVE_DEBOUNCE_TIME);
+
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -65,7 +81,6 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         setBoard(loadedBoard);
 
         if (!isCreateMode && itemId) {
-          // Find the task in the board
           let foundTask: Task | null = null;
           for (const column of loadedBoard.columns) {
             foundTask = column.tasks.find((t) => t.id === itemId) || null;
@@ -83,6 +98,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           setDescription(foundTask.description || '');
           setSelectedParentId(foundTask.parent_id || null);
           setSelectedIssueType(foundTask.getIssueType());
+          setPriority(foundTask.priority || 'none');
         }
       } catch (error) {
         alertService.showError('Failed to load data');
@@ -95,7 +111,6 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
     loadData();
   }, [boardId, itemId, isCreateMode, boardService, navigation]);
 
-  // Get current column for create mode
   const targetColumn = board
     ? columnId
       ? board.columns.find((col) => col.id === columnId)
@@ -104,72 +119,80 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         : null
     : null;
 
-  const handleSave = async () => {
-    if (!board) {
-      alertService.showError('Board not loaded');
-      return;
-    }
+  const saveTask = useCallback(async () => {
+    if (!board) return;
+    if (!debouncedTitle.trim()) return;
+    if (!targetColumn) return;
 
-    if (!title.trim()) {
-      alertService.showValidationError('Item title is required');
-      return;
-    }
-
-    if (!targetColumn) {
-      alertService.showError('Could not determine target column');
-      return;
-    }
-
-    setSaving(true);
+    setSaveStatus('saving');
 
     try {
-      if (isCreateMode) {
-        // Create new task
+      if (!task) {
         const newTask = await taskService.createTask(
           board,
           targetColumn.id,
-          title.trim(),
-          description.trim() || undefined,
+          debouncedTitle.trim(),
+          debouncedDescription.trim() || undefined,
           selectedParentId || undefined
         );
 
-        // Set issue type on the newly created task
-        if (newTask) {
-          newTask.setIssueType(selectedIssueType);
-        }
+        newTask.setIssueType(selectedIssueType);
+        newTask.priority = priority;
 
-        // Save the board
+        setTask(newTask);
+        setCreatedTaskId(newTask.id);
+
         await boardService.saveBoard(board);
-
-        alertService.showSuccess('Task created successfully');
-        navigation.goBack();
       } else {
-        // Update existing task
-        if (!task) {
-          throw new Error('Task is null in edit mode');
-        }
-
         await taskService.updateTask(board, task.id, {
-          title: title.trim(),
-          description: description.trim() || undefined,
+          title: debouncedTitle.trim(),
+          description: debouncedDescription.trim() || undefined,
           parent_id: selectedParentId || undefined,
+          priority,
         });
 
-        // Update issue type
         task.setIssueType(selectedIssueType);
+        task.priority = priority;
 
-        // Save the board
         await boardService.saveBoard(board);
-
-        alertService.showSuccess('Task updated successfully');
-        navigation.goBack();
       }
+
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
-      alertService.showError('Failed to save task');
-    } finally {
-      setSaving(false);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
     }
-  };
+  }, [
+    board,
+    debouncedTitle,
+    debouncedDescription,
+    priority,
+    selectedParentId,
+    selectedIssueType,
+    targetColumn,
+    task,
+    taskService,
+    boardService,
+  ]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    saveTask();
+  }, [
+    debouncedTitle,
+    debouncedDescription,
+    priority,
+    selectedParentId,
+    selectedIssueType,
+    loading,
+    saveTask,
+  ]);
 
   const handleDelete = async () => {
     if (isCreateMode || !task || !board) {
@@ -194,71 +217,45 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
     );
   };
 
+  const insertTemplate = (template: string) => {
+    setDescription((prev) => prev + template);
+  };
+
   const selectedParent = selectedParentId && board
     ? board.parents.find((p) => p.id === selectedParentId)
     : null;
 
-  // Show loading state
   if (loading || !board) {
     return (
-      <View style={[styles.container, styles.centerContainer]}>
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
-    );
-  }
-
-
-  // Helper function to format timestamp
-  const formatTimestamp = (timestamp: Date | string | null): string => {
-    if (!timestamp) return 'N/A';
-    const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
-    return date.toLocaleString();
-  };
-
-  // All available issue types
-  const issueTypes = getAllIssueTypes();
-
-  // Issue Type Picker Modal
-  if (showIssueTypePicker) {
-    return (
-      <Screen style={styles.container} scrollable hasTabBar>
-        <View style={styles.pickerHeader}>
-          <Text style={styles.pickerTitle}>Select Issue Type</Text>
-          <TouchableOpacity onPress={() => setShowIssueTypePicker(false)}>
-            <Text style={styles.pickerClose}>Done</Text>
-          </TouchableOpacity>
+      <Screen style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
-
-        {issueTypes.map((issueType) => (
-          <TouchableOpacity
-            key={issueType}
-            style={styles.parentOption}
-            onPress={() => {
-              setSelectedIssueType(issueType);
-              setShowIssueTypePicker(false);
-            }}
-          >
-            <View style={styles.issueTypeOption}>
-              <View style={styles.issueTypeIcon}>
-                <AppIcon name={getIssueTypeIcon(issueType)} size={18} color={theme.text.secondary} />
-              </View>
-              <Text style={styles.issueTypeText}>{issueType}</Text>
-            </View>
-            {selectedIssueType === issueType && (
-              <View style={styles.checkmark}>
-                <AppIcon name="check" size={18} color={theme.accent.primary} />
-              </View>
-            )}
-          </TouchableOpacity>
-        ))}
       </Screen>
     );
   }
 
-  // Parent Picker Modal
+  const issueTypes = getAllIssueTypes();
+  const selectedPriority = PRIORITY_OPTIONS.find((option) => option.value === priority) || PRIORITY_OPTIONS[3];
+
+  const handleOpenMenu = () => {
+    if (isCreateMode) {
+      return;
+    }
+
+    Alert.alert('Task Options', '', [
+      {
+        text: 'Delete Task',
+        style: 'destructive',
+        onPress: handleDelete,
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   if (showParentPicker) {
     return (
-      <Screen style={styles.container} scrollable hasTabBar>
+      <Screen style={styles.container} scrollable hasTabBar={false}>
         <View style={styles.pickerHeader}>
           <Text style={styles.pickerTitle}>Select Parent</Text>
           <TouchableOpacity onPress={() => setShowParentPicker(false)}>
@@ -266,7 +263,6 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* None option */}
         <TouchableOpacity
           style={styles.parentOption}
           onPress={() => {
@@ -282,7 +278,6 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           )}
         </TouchableOpacity>
 
-        {/* Parent options */}
         {board.parents.map((parent) => (
           <TouchableOpacity
             key={parent.id}
@@ -305,201 +300,207 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   }
 
   return (
-    <Screen style={styles.container} contentContainerStyle={styles.content} scrollable hasTabBar>
-      {/* Title Input */}
-      <View style={styles.section}>
-        <Text style={styles.label}>Title *</Text>
-        <TextInput
-          style={styles.titleInput}
-          placeholder="Enter item title"
-          value={title}
-          onChangeText={setTitle}
-          autoFocus={isCreateMode}
-        />
-      </View>
-
-      {/* Description Input with Preview Toggle */}
-      <View style={styles.section}>
-        <View style={styles.labelRow}>
-          <Text style={styles.label}>Description</Text>
-          <TouchableOpacity
-            style={styles.previewToggle}
-            onPress={() => setShowMarkdownPreview(!showMarkdownPreview)}
-          >
-            <View style={styles.previewToggleContent}>
-              <AppIcon
-                name={showMarkdownPreview ? 'edit' : 'eye'}
-                size={14}
-                color={theme.text.secondary}
-              />
-              <Text style={styles.previewToggleText}>
-                {showMarkdownPreview ? 'Edit' : 'Preview'}
-              </Text>
+    <Screen style={styles.container} scrollable={false}>
+      <KeyboardAvoidingView
+        style={styles.keyboardContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={88}
+      >
+        <AutoSaveIndicator status={saveStatus} />
+        <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled">
+          {!isCreateMode && (
+            <View style={styles.topRow}>
+              <View style={styles.topRowSpacer} />
+              <TouchableOpacity style={styles.menuButton} onPress={handleOpenMenu}>
+                <AppIcon name="more" size={20} color={theme.text.secondary} />
+              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
-        </View>
-
-        {showMarkdownPreview ? (
-          <View style={[styles.input, styles.textArea, styles.preview]}>
-            <Text style={styles.previewText}>{description || 'No description'}</Text>
-          </View>
-        ) : (
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Enter item description (supports Markdown)"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            numberOfLines={8}
-            textAlignVertical="top"
-          />
-        )}
-      </View>
-
-      {/* Issue Type Selector */}
-      <View style={styles.section}>
-        <Text style={styles.label}>Issue Type</Text>
-        <TouchableOpacity
-          style={styles.parentSelector}
-          onPress={() => setShowIssueTypePicker(true)}
-        >
-          <View style={styles.issueTypeDisplay}>
-            <View style={styles.issueTypeIcon}>
-              <AppIcon name={getIssueTypeIcon(selectedIssueType)} size={18} color={theme.text.secondary} />
-            </View>
-            <Text style={styles.issueTypeText}>{selectedIssueType}</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      {/* Parent Selector */}
-      <View style={styles.section}>
-        <Text style={styles.label}>Parent / Project</Text>
-        <TouchableOpacity
-          style={styles.parentSelector}
-          onPress={() => setShowParentPicker(true)}
-        >
-          {selectedParent ? (
-            <ParentBadge name={selectedParent.name} color={selectedParent.color} />
-          ) : (
-            <Text style={styles.parentPlaceholder}>Select a parent (optional)</Text>
           )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Target Column Info */}
-      {targetColumn && (
-        <View style={styles.infoSection}>
-          <Text style={styles.infoLabel}>Column:</Text>
-          <Text style={styles.infoValue}>{targetColumn.name}</Text>
-        </View>
-      )}
-
-      {/* Timestamp Display (Edit Mode Only) */}
-      {!isCreateMode && task && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Metadata</Text>
-          <View style={styles.metadataContainer}>
-            <View style={styles.metadataRow}>
-              <Text style={styles.metadataLabel}>Created:</Text>
-              <Text style={styles.metadataValue}>{formatTimestamp(task.created_at)}</Text>
-            </View>
-            {task.moved_in_progress_at && (
-              <View style={styles.metadataRow}>
-                <Text style={styles.metadataLabel}>Moved to In Progress:</Text>
-                <Text style={styles.metadataValue}>{formatTimestamp(task.moved_in_progress_at)}</Text>
-              </View>
-            )}
-            {task.moved_in_done_at && (
-              <View style={styles.metadataRow}>
-                <Text style={styles.metadataLabel}>Moved to Done:</Text>
-                <Text style={styles.metadataValue}>{formatTimestamp(task.moved_in_done_at)}</Text>
-              </View>
-            )}
-            {task.worked_on_for && (
-              <View style={styles.metadataRow}>
-                <Text style={styles.metadataLabel}>Work Duration:</Text>
-                <Text style={styles.metadataValue}>{task.worked_on_for}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-      )}
-
-      {/* Schedule Info */}
-      {!isCreateMode && task && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Schedule</Text>
-          <TouchableOpacity
-            style={styles.scheduleButton}
-            onPress={() => {
-              const rootNav = navigation.getParent();
-              if (rootNav) {
-                rootNav.navigate('AgendaTab', {
-                  screen: 'TaskSchedule',
-                  params: { taskId: task.id, boardId, taskData: task.toDict() }
-                });
-              }
-            }}
-          >
-            {task.isScheduled ? (
-              <View style={styles.scheduleInfo}>
-                <View style={styles.scheduleIcon}>
-                  <AppIcon name="calendar" size={20} color={theme.text.secondary} />
+          <View style={styles.metaBar}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.metaBarContent}
+            >
+              <TouchableOpacity
+                style={[styles.metaChip, activeMetaPicker === 'priority' && styles.metaChipActive]}
+                onPress={() => setActiveMetaPicker(activeMetaPicker === 'priority' ? null : 'priority')}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.priorityDot, { backgroundColor: selectedPriority.color }]} />
+                <Text style={styles.metaChipText}>Priority: {selectedPriority.label}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.metaChip, activeMetaPicker === 'issueType' && styles.metaChipActive]}
+                onPress={() => setActiveMetaPicker(activeMetaPicker === 'issueType' ? null : 'issueType')}
+                activeOpacity={0.85}
+              >
+                <AppIcon
+                  name={getIssueTypeIcon(selectedIssueType)}
+                  size={16}
+                  color={theme.text.secondary}
+                />
+                <Text style={styles.metaChipText}>{selectedIssueType}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.metaChip}
+                onPress={() => setShowParentPicker(true)}
+                activeOpacity={0.85}
+              >
+                {selectedParent ? (
+                  <ParentBadge name={selectedParent.name} color={selectedParent.color} size="small" />
+                ) : (
+                  <Text style={styles.metaChipText}>Parent: None</Text>
+                )}
+              </TouchableOpacity>
+              {targetColumn && (
+                <View style={styles.metaChipStatic}>
+                  <AppIcon name="stack" size={16} color={theme.text.secondary} />
+                  <Text style={styles.metaChipText}>{targetColumn.name}</Text>
                 </View>
-                <View style={styles.scheduleTextContainer}>
-                  <Text style={styles.scheduleDate}>
-                    {task.scheduled_date}
-                    {task.scheduled_time && ` at ${formatScheduleTime(task.scheduled_time)}`}
+              )}
+              {!isCreateMode && task && (
+                <TouchableOpacity
+                  style={styles.metaChip}
+                  onPress={() => {
+                    const rootNav = navigation.getParent();
+                    if (rootNav) {
+                      rootNav.navigate('AgendaTab', {
+                        screen: 'TaskSchedule',
+                        params: { taskId: task.id, boardId, taskData: task.toDict() },
+                      });
+                    }
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <AppIcon name="calendar" size={16} color={theme.text.secondary} />
+                  <Text style={styles.metaChipText}>
+                    {task.isScheduled
+                      ? `${task.scheduled_date}${task.scheduled_time ? ` ${formatScheduleTime(task.scheduled_time)}` : ''}`
+                      : 'Schedule'}
                   </Text>
-                  {task.time_block_minutes && (
-                    <Text style={styles.scheduleDuration}>
-                      Duration: {task.time_block_minutes} minutes
-                    </Text>
-                  )}
-                </View>
-              </View>
-            ) : (
-              <View style={styles.scheduleInfo}>
-                <View style={styles.scheduleIcon}>
-                  <AppIcon name="calendar" size={20} color={theme.text.secondary} />
-                </View>
-                <Text style={styles.scheduleNotSet}>Schedule this task</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
 
-      {/* Action Buttons */}
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.saveButton]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          <Text style={styles.saveButtonText}>
-            {saving ? 'Saving...' : isCreateMode ? 'Create Task' : 'Save Changes'}
-          </Text>
-        </TouchableOpacity>
+          {activeMetaPicker === 'priority' && (
+            <View style={styles.metaPicker}>
+              <View style={styles.optionRow}>
+                {PRIORITY_OPTIONS.map((option) => {
+                  const isActive = priority === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.optionButton,
+                        isActive && {
+                          borderColor: option.color,
+                          backgroundColor: option.color + '20',
+                        },
+                      ]}
+                      onPress={() => {
+                        setPriority(option.value);
+                        setActiveMetaPicker(null);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <View
+                        style={[
+                          styles.priorityDot,
+                          { backgroundColor: isActive ? option.color : theme.text.muted },
+                        ]}
+                      />
+                      <Text style={[styles.optionLabel, { color: isActive ? option.color : theme.text.secondary }]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
 
-        {!isCreateMode && (
-          <TouchableOpacity
-            style={[styles.button, styles.deleteButton]}
-            onPress={handleDelete}
-            disabled={saving}
-          >
-            <Text style={styles.deleteButtonText}>Delete Task</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+          {activeMetaPicker === 'issueType' && (
+            <View style={styles.metaPicker}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.optionRow}>
+                {issueTypes.map((issueType) => {
+                  const isActive = selectedIssueType === issueType;
+                  return (
+                    <TouchableOpacity
+                      key={issueType}
+                      style={[styles.optionButton, isActive && styles.optionButtonActive]}
+                      onPress={() => {
+                        setSelectedIssueType(issueType);
+                        setActiveMetaPicker(null);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <AppIcon
+                        name={getIssueTypeIcon(issueType)}
+                        size={16}
+                        color={isActive ? theme.accent.primary : theme.text.secondary}
+                      />
+                      <Text style={[styles.optionLabel, isActive && styles.optionLabelActive]}>
+                        {issueType}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
+          <View style={styles.titleContainer}>
+            <TextInput
+              style={styles.titleInput}
+              placeholder="Untitled task"
+              placeholderTextColor={theme.text.muted}
+              value={title}
+              onChangeText={setTitle}
+              autoFocus={isCreateMode}
+            />
+          </View>
+
+          <View style={styles.editorBlock}>
+            <View style={styles.toolbar}>
+              <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n## ')}>
+                <Text style={styles.toolButtonText}>H</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- ')}>
+                <Text style={styles.toolButtonText}>-</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n- [ ] ')}>
+                <Text style={styles.toolButtonText}>[]</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.toolButton} onPress={() => insertTemplate('\n> ')}>
+                <Text style={styles.toolButtonText}>"</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.editorContainer}>
+              <TextInput
+                style={styles.contentInput}
+                placeholder="Start writing your task details..."
+                placeholderTextColor={theme.text.muted}
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                textAlignVertical="top"
+                scrollEnabled={false}
+              />
+            </View>
+          </View>
+
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 function formatScheduleTime(time: string): string {
   const [hours, minutes] = time.split(':');
-  const hour = parseInt(hours);
+  const hour = parseInt(hours, 10);
   const period = hour >= 12 ? 'PM' : 'AM';
   const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
   return `${displayHour}:${minutes} ${period}`;
@@ -508,109 +509,161 @@ function formatScheduleTime(time: string): string {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.background.secondary,
+    backgroundColor: theme.background.primary,
   },
-  centerContainer: {
-    justifyContent: 'center',
+  keyboardContainer: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingText: {
     fontSize: 16,
     color: theme.text.secondary,
   },
-  content: {
-    padding: 16,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.text.primary,
-    marginBottom: 8,
+  titleContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
   },
   titleInput: {
-    borderWidth: 1,
-    borderColor: theme.input.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: theme.input.background,
-    color: theme.input.text,
+    color: theme.text.primary,
+    fontSize: 28,
+    fontWeight: '700',
   },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.input.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: theme.input.background,
-    color: theme.input.text,
+  metaBar: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
   },
-  textArea: {
-    height: 120,
-    textAlignVertical: 'top',
-  },
-  parentSelector: {
-    borderWidth: 1,
-    borderColor: theme.input.border,
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: theme.input.background,
-  },
-  parentPlaceholder: {
-    fontSize: 16,
-    color: theme.input.placeholder,
-  },
-  infoSection: {
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    padding: 12,
-    backgroundColor: theme.background.elevated,
-    borderRadius: 8,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
   },
-  infoLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.text.secondary,
-    marginRight: 8,
+  topRowSpacer: {
+    flex: 1,
   },
-  infoValue: {
-    fontSize: 14,
-    color: theme.text.primary,
+  menuButton: {
+    padding: spacing.xs,
   },
-  buttonContainer: {
-    marginTop: 8,
+  metaBarContent: {
+    gap: spacing.sm,
   },
-  button: {
-    padding: 16,
-    borderRadius: 8,
+  metaChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    gap: spacing.xs,
+    backgroundColor: theme.glass.tint.neutral,
+    borderRadius: 16,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.glass.border,
   },
-  saveButton: {
-    backgroundColor: theme.button.primary.background,
+  metaChipActive: {
+    borderColor: theme.accent.primary,
+    backgroundColor: theme.accent.primary + '20',
   },
-  saveButtonText: {
-    color: theme.button.primary.text,
-    fontSize: 16,
+  metaChipStatic: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: theme.glass.tint.neutral,
+    borderRadius: 16,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.glass.border,
+  },
+  metaChipText: {
+    color: theme.text.secondary,
+    fontSize: 13,
     fontWeight: '600',
   },
-  deleteButton: {
-    backgroundColor: theme.button.danger.background,
+  metaPicker: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
   },
-  deleteButtonText: {
-    color: theme.button.danger.text,
-    fontSize: 16,
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  optionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.glass.tint.neutral,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.glass.border,
+  },
+  optionButtonActive: {
+    borderColor: theme.accent.primary,
+    backgroundColor: theme.accent.primary + '20',
+  },
+  optionLabel: {
+    color: theme.text.secondary,
+    fontSize: 14,
     fontWeight: '600',
+    marginLeft: spacing.xs,
+  },
+  optionLabelActive: {
+    color: theme.accent.primary,
+  },
+  priorityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  editorBlock: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  toolButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: theme.glass.tint.neutral,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.glass.border,
+  },
+  toolButtonText: {
+    color: theme.text.primary,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  editorContainer: {
+    minHeight: 200,
+  },
+  contentInput: {
+    color: theme.text.primary,
+    fontSize: 17,
+    lineHeight: 26,
+    minHeight: 200,
+  },
+  bottomPadding: {
+    height: spacing.xxxl,
   },
   pickerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: theme.border.primary,
   },
@@ -628,7 +681,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: theme.border.primary,
   },
@@ -637,103 +690,6 @@ const styles = StyleSheet.create({
     color: theme.text.secondary,
   },
   checkmark: {
-    marginLeft: 8,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  previewToggle: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    backgroundColor: theme.background.elevated,
-    borderRadius: 6,
-  },
-  previewToggleContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  previewToggleText: {
-    fontSize: 12,
-    color: theme.text.primary,
-    fontWeight: '600',
-  },
-  preview: {
-    backgroundColor: theme.background.elevated,
-  },
-  previewText: {
-    fontSize: 14,
-    color: theme.text.primary,
-    lineHeight: 20,
-  },
-  issueTypeDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  issueTypeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  issueTypeIcon: {
-    marginRight: 8,
-  },
-  issueTypeText: {
-    fontSize: 16,
-    color: theme.text.primary,
-  },
-  metadataContainer: {
-    backgroundColor: theme.background.elevated,
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: theme.border.primary,
-  },
-  metadataRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  metadataLabel: {
-    fontSize: 13,
-    color: theme.text.secondary,
-    fontWeight: '500',
-  },
-  metadataValue: {
-    fontSize: 13,
-    color: theme.text.primary,
-  },
-  scheduleButton: {
-    borderWidth: 1,
-    borderColor: theme.border.primary,
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: theme.input.background,
-  },
-  scheduleInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  scheduleIcon: {
-    marginRight: 12,
-  },
-  scheduleTextContainer: {
-    flex: 1,
-  },
-  scheduleDate: {
-    fontSize: 15,
-    color: theme.text.primary,
-    fontWeight: '500',
-  },
-  scheduleDuration: {
-    fontSize: 13,
-    color: theme.text.secondary,
-    marginTop: 2,
-  },
-  scheduleNotSet: {
-    fontSize: 15,
-    color: theme.text.secondary,
+    marginLeft: spacing.sm,
   },
 });
