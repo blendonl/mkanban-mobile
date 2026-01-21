@@ -174,6 +174,34 @@ export class AgendaItem {
       if (typeof value === 'string') return new Date(value);
       return undefined;
     };
+    const normalizeTime = (value: any): string | null => {
+      if (value === null || value === undefined || value === '') return null;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        if (trimmed.includes(':')) return trimmed;
+        if (/^\d+$/.test(trimmed)) {
+          const padded = trimmed.padStart(4, '0');
+          if (padded.length === 4) {
+            return `${padded.slice(0, 2)}:${padded.slice(2)}`;
+          }
+        }
+        return null;
+      }
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        const hours = value.getHours().toString().padStart(2, '0');
+        const minutes = value.getMinutes().toString().padStart(2, '0');
+        return `${hours}:${minutes}`;
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        const numeric = Math.trunc(value);
+        if (numeric >= 0 && numeric <= 2359) {
+          const padded = numeric.toString().padStart(4, '0');
+          return `${padded.slice(0, 2)}:${padded.slice(2)}`;
+        }
+      }
+      return null;
+    };
 
     return new AgendaItem({
       id: data.id,
@@ -181,7 +209,7 @@ export class AgendaItem {
       board_id: data.board_id,
       task_id: data.task_id,
       scheduled_date: data.scheduled_date,
-      scheduled_time: data.scheduled_time || null,
+      scheduled_time: normalizeTime(data.scheduled_time),
       duration_minutes: data.duration_minutes || null,
       task_type: data.task_type || 'regular',
       meeting_data: data.meeting_data || null,

@@ -65,7 +65,10 @@ export class UnfinishedTasksService {
       if (markedCount > 0) {
         logger.info(`[UnfinishedTasksService] Marked ${markedCount} items as unfinished`);
         const eventBus = getEventBus();
-        eventBus.emit('agenda_updated', { source: 'unfinished_tasks_service' });
+        eventBus.publishSync('agenda_invalidated', {
+          timestamp: new Date(),
+          source: 'unfinished_tasks_service',
+        });
       }
     } catch (error) {
       logger.error('[UnfinishedTasksService] Error checking expired blocks:', error);

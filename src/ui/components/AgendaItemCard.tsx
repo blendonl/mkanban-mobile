@@ -36,10 +36,12 @@ const getTaskTypeMeta = (taskType: TaskType) => {
   }
 };
 
-const formatTime = (time: string | null) => {
-  if (!time) return null;
+const formatTime = (time: string | null | undefined) => {
+  if (!time || typeof time !== 'string') return null;
   const [hours, minutes] = time.split(':');
-  const hour = parseInt(hours);
+  if (!hours || !minutes) return null;
+  const hour = parseInt(hours, 10);
+  if (Number.isNaN(hour)) return null;
   const period = hour >= 12 ? 'PM' : 'AM';
   const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
   return `${displayHour}:${minutes} ${period}`;
